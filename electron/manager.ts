@@ -13,6 +13,22 @@ import { atomicWrite, inside, redact, rejectLinks } from './security';
 import { extractZip, hashFile, inspectZip, zipFolder } from './archives';
 import { games } from '../shared/catalog';
 import {
+  racingGames,
+  gameOptions,
+  configDocuments,
+  configurationFiles,
+  saveConfigDocument,
+  evoArguments,
+  readJson,
+  writeJson,
+  patchIni,
+  parseIni,
+} from './racing';
+import { detectTool, copyTool, requestSteamInstall } from './steam';
+import { installMinecraft, minecraftLaunch, minecraftVersions } from './minecraft';
+import type { ContentKind } from '../shared/contracts';
+import { listContent, importFiles, toggleFile } from './content';
+import {
   serverInput,
   type ServerRecord,
   type ServerInput,
@@ -30,6 +46,7 @@ type Running = {
   finish: () => void;
 };
 export class Manager {
+  private installs = new Map<string, AbortController>();
   readonly servers = new Map<string, ServerRecord>();
   readonly running = new Map<string, Running>();
   private logs = new Map<string, LogLine[]>();
@@ -37,6 +54,7 @@ export class Manager {
   private cpuSample = os.cpus().map((c) => c.times);
   private timer?: NodeJS.Timeout;
   private journalQueue: Promise<void> = Promise.resolve();
+  private fileLogOffsets = new Map<string, number>();
   constructor(
     readonly store: Store,
     private data: string,
@@ -44,6 +62,15 @@ export class Manager {
   ) {}
   async init() {
     for (const s of this.store.all()) {
+      const parsed = serverInput.parse(
+        Object.fromEntries(
+          Object.keys(serverInput.shape)
+            .filter((k) => !['authKey', 'password', 'adminPassword'].includes(k))
+            .map((k) => [k, (s as any)[k]]),
+        ),
+      );
+      Object.assign(s, parsed);
+      s.installation = undefined;
       this.servers.set(s.id, s);
       await this.refreshInstalled(s);
     }
@@ -85,7 +112,39 @@ export class Manager {
           s.memoryMB = Math.round(p.memory / 1024 ** 2);
           s.cpu = Math.round(p.cpu * 10) / 10;
         } catch {}
+        if (this.get(id).game === 'acc') await this.tailAccLog(this.get(id));
       }
+  }
+  private async tailAccLog(s: ServerRecord) {
+    try {
+      const file = inside(s.root, 'log/server.log');
+      await rejectLinks(s.root, file);
+      const stat = await fs.stat(file);
+      let offset = this.fileLogOffsets.get(s.id) ?? 0;
+      if (stat.size < offset) offset = 0;
+      if (stat.size === offset) return;
+      const fd = await fs.open(file, 'r');
+      try {
+        const buffer = Buffer.alloc(Math.min(stat.size - offset, 65536));
+        const { bytesRead } = await fd.read(buffer, 0, buffer.length, offset);
+        const last = buffer.subarray(0, bytesRead).lastIndexOf(10);
+        if (last < 0) {
+          if (bytesRead === 65536) {
+            this.fileLogOffsets.set(s.id, stat.size);
+            this.log(s.id, 'Слишком длинная строка лога ACC пропущена');
+          }
+          return;
+        }
+        this.fileLogOffsets.set(s.id, offset + last + 1);
+        const secrets = await this.passwords(s);
+        this.log(s.id, buffer.subarray(0, last + 1).toString('utf8'), 'out', [
+          secrets.password ?? '',
+          secrets.adminPassword ?? '',
+        ]);
+      } finally {
+        await fd.close();
+      }
+    } catch {}
   }
   async stats(): Promise<Stats> {
     const root =
@@ -140,7 +199,7 @@ export class Manager {
     return this.stats();
   }
   async create(input: ServerInput) {
-    const { authKey, ...values } = serverInput.parse(input);
+    const { authKey, password, adminPassword, ...values } = serverInput.parse(input);
     if ([...this.servers.values()].some((s) => s.port === values.port))
       throw new Error('Этот порт уже назначен другому серверу GameHub');
     const id = crypto.randomUUID();
@@ -157,7 +216,8 @@ export class Manager {
       installed: false,
     };
     if (authKey) await this.saveSecret(s, authKey);
-    await configure(s, authKey ?? '');
+    await this.savePasswords(s, password, adminPassword);
+    await configure(s, authKey ?? '', await this.passwords(s));
     await this.store.put(s);
     this.servers.set(id, s);
     return s;
@@ -165,14 +225,15 @@ export class Manager {
   async update(id: string, input: ServerInput) {
     const s = this.get(id);
     this.stopped(s);
-    const { authKey, ...values } = serverInput.parse(input);
+    const { authKey, password, adminPassword, ...values } = serverInput.parse(input);
     if (values.game !== s.game) throw new Error('Нельзя менять игру существующего сервера');
     if ([...this.servers.values()].some((v) => v.id !== id && v.port === values.port))
       throw new Error('Конфликт порта с другим сервером');
     await this.backup(id);
     if (authKey) await this.saveSecret(s, authKey);
+    await this.savePasswords(s, password, adminPassword);
     const next = { ...s, ...values };
-    await configure(next, await this.secret(s));
+    await configure(next, await this.secret(s), await this.passwords(s));
     await this.store.put(next);
     this.servers.set(id, next);
     return next;
@@ -181,17 +242,152 @@ export class Manager {
     if (!safeStorage.isEncryptionAvailable())
       throw new Error('Windows DPAPI недоступен: ключ не будет сохранён');
     await this.store.setting(`secret:${s.id}`, safeStorage.encryptString(value).toString('base64'));
-    s.hasSecret = true;
+    s.hasSecret = !!value;
   }
   private async secret(s: ServerRecord) {
     const value = this.store.getSetting(`secret:${s.id}`);
     return value ? safeStorage.decryptString(Buffer.from(value, 'base64')) : '';
   }
+  private async savePasswords(s: ServerRecord, password?: string, adminPassword?: string) {
+    for (const [key, value] of Object.entries({ password, adminPassword }))
+      if (value) {
+        if (!safeStorage.isEncryptionAvailable()) throw new Error('DPAPI недоступен');
+        await this.store.setting(
+          `${key}:${s.id}`,
+          safeStorage.encryptString(value).toString('base64'),
+        );
+      }
+  }
+  private async passwords(s: ServerRecord) {
+    const result: { password?: string; adminPassword?: string } = {};
+    for (const key of ['password', 'adminPassword'] as const) {
+      const value = this.store.getSetting(`${key}:${s.id}`);
+      if (value) result[key] = safeStorage.decryptString(Buffer.from(value, 'base64'));
+    }
+    return result;
+  }
+  async options(id: string) {
+    const values = serverInput.parse({
+      game: this.servers.get(id)?.game ?? id,
+      name: 'Draft',
+      port: 30814,
+      players: 8,
+    });
+    const s = this.servers.get(id) ?? {
+      ...values,
+      id: 'draft',
+      root: (await detectTool(values.game)) ?? path.join(this.data, 'draft'),
+      createdAt: '',
+      hasSecret: false,
+      installed: false,
+      status: 'stopped' as const,
+    };
+    const result = await gameOptions(s);
+    if (s.game === 'beammp')
+      for (const name of await fs.readdir(path.join(s.root, 'Resources/Client')).catch(() => []))
+        if (name.endsWith('.zip')) {
+          const file = inside(s.root, 'Resources/Client/' + name);
+          await rejectLinks(s.root, file);
+          for (const entry of await inspectZip(file).catch(() => [])) {
+            const match = /^levels\/([^/]+)\/info\.json$/.exec(entry.name);
+            if (match) {
+              const value = '/levels/' + match[1] + '/info.json';
+              if (!result.maps.some((m) => m.value === value))
+                result.maps.push({ value, label: match[1] + ' · ' + name });
+            }
+          }
+        }
+    return result;
+  }
+  versions(core: string) {
+    return minecraftVersions(core);
+  }
+  documents(id: string) {
+    return configDocuments(this.get(id));
+  }
+  async saveDocument(id: string, name: string, data: Record<string, unknown>) {
+    const s = this.get(id);
+    this.stopped(s);
+    if (!(await configurationFiles(s)).includes(name))
+      throw new Error('Недопустимый конфигурационный файл');
+    await this.backup(id);
+    const originalFile = inside(s.root, name);
+    await rejectLinks(s.root, originalFile);
+    const original = await fs.readFile(originalFile);
+    let changed: Partial<ServerRecord>;
+    try {
+      await saveConfigDocument(s, name, data);
+      changed = await readConfig(s);
+      const candidate = { ...s, ...changed, game: s.game };
+      serverInput.parse(
+        Object.fromEntries(
+          Object.keys(serverInput.shape).map((key) => [key, (candidate as any)[key]]),
+        ),
+      );
+    } catch (error) {
+      await atomicWrite(originalFile, original);
+      throw error;
+    }
+    const raw = data as any;
+    if (
+      s.game === 'beammp' &&
+      typeof raw.General?.AuthKey === 'string' &&
+      raw.General.AuthKey !== '__GAMEHUB_KEEP_SECRET__'
+    )
+      await this.saveSecret(s, raw.General.AuthKey);
+    const candidates =
+      s.game === 'assetto'
+        ? { password: raw.SERVER?.PASSWORD, adminPassword: raw.SERVER?.ADMIN_PASSWORD }
+        : s.game === 'evo'
+          ? { password: raw.driver_password, adminPassword: raw.admin_password }
+          : { password: raw.password, adminPassword: raw.adminPassword };
+    for (const [key, value] of Object.entries(candidates))
+      if (typeof value === 'string' && value !== '__GAMEHUB_KEEP_SECRET__') {
+        if (!safeStorage.isEncryptionAvailable()) throw new Error('DPAPI недоступен');
+        await this.store.setting(
+          `${key}:${s.id}`,
+          safeStorage.encryptString(value).toString('base64'),
+        );
+      }
+    Object.assign(s, changed);
+    await this.store.put(s);
+    this.log(id, 'Сохранён ' + name);
+    return this.documents(id);
+  }
+  cancelInstall(id: string) {
+    this.get(id);
+    this.installs.get(id)?.abort();
+  }
+  get installing() {
+    return this.installs.size > 0;
+  }
+  async cancelAllInstalls() {
+    for (const controller of this.installs.values()) controller.abort();
+    for (let i = 0; i < 100 && this.installs.size; i++)
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    if (this.installs.size)
+      throw new Error('Установщик ещё завершает работу. Повторите выход после остановки.');
+  }
   private async refreshInstalled(s: ServerRecord) {
     s.installed = await fs
-      .access(path.join(s.root, binaryName(s)))
+      .access(
+        path.join(
+          s.root,
+          s.game === 'minecraft' && ['forge', 'neoforge'].includes(s.core)
+            ? 'gamehub-launch.json'
+            : binaryName(s),
+        ),
+      )
       .then(() => true)
       .catch(() => false);
+    if (s.game === 'minecraft' && s.installed) {
+      const installed = await fs
+        .readFile(inside(s.root, 'gamehub-java.json'), 'utf8')
+        .then((text) => JSON.parse(text))
+        .catch(() => null);
+      if (installed?.core && (installed.core !== s.core || installed.version !== s.version))
+        s.installed = false;
+    }
   }
   private log(
     id: string,
@@ -224,7 +420,7 @@ export class Manager {
         detail: tcp ? 'Свободен на момент проверки' : 'Занят или недоступен',
       },
     ];
-    if (s.game === 'beammp') {
+    if (s.game !== 'minecraft') {
       const udp = await new Promise<boolean>((resolve) => {
         const socket = dgram.createSocket('udp4');
         socket.unref();
@@ -238,6 +434,23 @@ export class Manager {
         label: `UDP ${s.port}`,
         ok: udp,
         detail: udp ? 'Свободен на момент проверки' : 'Занят или недоступен',
+      });
+    }
+    if (['assetto', 'evo'].includes(s.game)) {
+      const free =
+        s.httpPort !== s.port &&
+        (await new Promise<boolean>((resolve) => {
+          const server = net.createServer();
+          server.unref();
+          server.once('error', () => resolve(false));
+          server.listen({ host: '0.0.0.0', port: s.httpPort, exclusive: true }, () =>
+            server.close(() => resolve(true)),
+          );
+        }));
+      checks.push({
+        label: `HTTP TCP ${s.httpPort}`,
+        ok: free,
+        detail: free ? 'Свободен' : 'HTTP-порт занят или совпадает с игровым портом',
       });
     }
     return checks;
@@ -267,7 +480,7 @@ export class Manager {
         ok: s.eula,
         detail: 'Принимается только явной отметкой пользователя',
       });
-      const java = this.store.getSetting('java');
+      const java = this.store.getSetting(`java:${s.id}`) ?? this.store.getSetting('java');
       checks.push({
         label: 'Java',
         ok:
@@ -276,13 +489,36 @@ export class Manager {
             .access(java)
             .then(() => true)
             .catch(() => false)),
-        detail: 'Выберите java.exe нужной версии. GameHub не устанавливает Java автоматически.',
+        detail:
+          'Java устанавливается автоматически вместе с ядром; при необходимости можно выбрать свою.',
       });
       checks.push({
         label: 'Оперативная память',
         ok: s.memory < os.freemem() / 1024 ** 2,
         detail: `Выделено ${s.memory} МБ; доступно ${Math.round(os.freemem() / 1024 ** 2)} МБ`,
       });
+    }
+    if (racingGames.has(s.game)) {
+      checks.push({
+        label: 'Трасса',
+        ok: !!s.track,
+        detail: s.track || 'Выберите трассу в настройках',
+      });
+      if (s.game === 'assetto')
+        checks.push({
+          label: 'Автомобили',
+          ok: s.cars.length > 0,
+          detail: 'Выберите хотя бы один автомобиль',
+        });
+      if (s.game === 'evo')
+        checks.push({
+          label: 'Официальная конфигурация EVO',
+          ok: await fs
+            .access(path.join(s.root, 'server_config.json'))
+            .then(() => true)
+            .catch(() => false),
+          detail: 'Используется отдельная JSON-конфигурация официального сервера EVO',
+        });
     }
     if (!this.running.has(id)) checks.push(...(await this.ports(s)));
     return checks;
@@ -300,18 +536,35 @@ export class Manager {
           .join('\n'),
       );
     const secret = await this.secret(s);
-    await configure(s, secret);
+    this.fileLogOffsets.delete(id);
+    const passwords = await this.passwords(s);
+    // Settings are written on explicit save; preserve edits made in the full configuration editor.
     const binary = inside(s.root, binaryName(s));
     await rejectLinks(s.root, binary);
-    const executable = s.game === 'beammp' ? binary : this.store.getSetting('java')!;
-    const args =
-      s.game === 'beammp' ? [] : [`-Xms512M`, `-Xmx${s.memory}M`, '-jar', binary, 'nogui'];
+    let executable = binary,
+      args: string[] = [];
+    if (s.game === 'minecraft') {
+      const launch = await minecraftLaunch(
+        s,
+        this.store.getSetting(`java:${s.id}`) ?? this.store.getSetting('java'),
+      );
+      executable = launch.executable;
+      args = launch.args;
+    }
+    if (s.game === 'evo') args = await evoArguments(s);
+    if (racingGames.has(s.game)) {
+      args = [executable, ...args];
+      executable = app.isPackaged
+        ? path.join(process.resourcesPath, 'ConsoleHost.exe')
+        : path.join(__dirname, 'ConsoleHost.exe');
+      await fs.access(executable);
+    }
     const worker = fork(path.join(__dirname, 'runner.cjs'), [], {
       execPath: process.execPath,
       env: {
         ...process.env,
         ELECTRON_RUN_AS_NODE: '1',
-        GAMEHUB_STOP: s.game === 'minecraft' ? 'stop' : 'exit',
+        GAMEHUB_STOP: racingGames.has(s.game) ? 'native' : s.game === 'minecraft' ? 'stop' : 'exit',
       },
       stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
       windowsHide: true,
@@ -343,7 +596,11 @@ export class Manager {
           s.pid = message.pid;
           await this.journal();
         } else if (message.type === 'log')
-          this.log(id, message.text ?? '', message.stream, [secret]);
+          this.log(id, message.text ?? '', message.stream, [
+            secret,
+            passwords.password ?? '',
+            passwords.adminPassword ?? '',
+          ]);
         else if (message.type === 'failed')
           failed('Не удалось запустить сервер. Проверьте файлы и зависимости.');
         else if (message.type === 'exit') {
@@ -388,11 +645,16 @@ export class Manager {
       throw new Error(
         'Сервер ещё останавливается. Принудительное завершение не выполнено: проверьте консоль.',
       );
+    if (s.game === 'acc') await this.tailAccLog(s);
   }
   command(id: string, command: string) {
     const s = this.get(id),
       r = this.running.get(id);
     if (!r || r.stopping) throw new Error('Сервер не запущен');
+    if (racingGames.has(s.game))
+      throw new Error(
+        'Команды администратора этой игры отправляются из игрового чата. Консоль GameHub показывает реальные логи.',
+      );
     if (s.game === 'beammp' && /^lua\b/i.test(command))
       throw new Error(
         'Lua-режим через консоль GameHub отключён: он меняет обработку команды остановки.',
@@ -418,7 +680,8 @@ export class Manager {
     const error = await shell.openPath(s.root);
     if (error) throw new Error('Не удалось открыть папку');
   }
-  async chooseJava() {
+  async chooseJava(id?: string) {
+    if (id) this.get(id);
     const r = await dialog.showOpenDialog(this.window(), {
       title: 'Выберите java.exe (не javaw.exe)',
       filters: [{ name: 'Java executable', extensions: ['exe'] }],
@@ -427,7 +690,7 @@ export class Manager {
     if (r.canceled) return false;
     if (path.basename(r.filePaths[0]).toLowerCase() !== 'java.exe')
       throw new Error('Нужен java.exe');
-    await this.store.setting('java', r.filePaths[0]);
+    await this.store.setting(id ? `java:${id}` : 'java', r.filePaths[0]);
     return true;
   }
   async importBinary(id: string) {
@@ -461,7 +724,57 @@ export class Manager {
   async install(id: string) {
     const s = this.get(id);
     this.stopped(s);
-    if (s.game !== 'beammp') return this.importBinary(id);
+    if (s.game === 'minecraft') {
+      if (!s.eula)
+        throw new Error(
+          'Перед загрузкой Minecraft прочитайте EULA и отметьте согласие в настройках.',
+        );
+      await this.backup(id);
+      const control = new AbortController();
+      this.installs.set(id, control);
+      const progress = (phase: string, bytes?: number, total?: number) => {
+        s.installation = { phase, bytes, total };
+      };
+      try {
+        const java = await installMinecraft(s, this.data, control.signal, progress);
+        await this.store.setting(`java:${s.id}`, java);
+        await configure(s, '');
+        await this.refreshInstalled(s);
+        await this.store.put(s);
+      } catch (error) {
+        s.installation = { phase: 'Ошибка установки', error: redact((error as Error).message) };
+        throw error;
+      } finally {
+        this.installs.delete(id);
+      }
+      return s;
+    }
+    if (racingGames.has(s.game)) {
+      const source = await detectTool(s.game);
+      if (!source) {
+        s.installation = { phase: 'Ожидание установки в Steam' };
+        await requestSteamInstall(s.game);
+        return;
+      }
+      await this.backup(id);
+      s.installation = { phase: 'Копирование официального сервера из Steam' };
+      await copyTool(source, s.root, (name) => {
+        s.installation = { phase: 'Копирование: ' + name };
+      });
+      if (s.game === 'assetto') {
+        const sourceConfig = await fs
+          .readFile(path.join(source, 'cfg', 'server_cfg.ini'), 'utf8')
+          .catch(() => '');
+        const file = inside(s.root, 'cfg/server_cfg.ini');
+        const current = await fs.readFile(file, 'utf8').catch(() => '');
+        if (sourceConfig) await atomicWrite(file, patchIni(sourceConfig, parseIni(current)));
+      }
+      await configure(s, '', await this.passwords(s));
+      await this.refreshInstalled(s);
+      s.installation = { phase: 'Официальный сервер установлен' };
+      await this.store.put(s);
+      return s;
+    }
     const response = await fetch(
       'https://api.github.com/repos/BeamMP/BeamMP-Server/releases/latest',
       { headers: { 'User-Agent': 'GameHub/0.1' }, signal: AbortSignal.timeout(20000) },
@@ -524,148 +837,31 @@ export class Manager {
     await this.refreshInstalled(s);
   }
   async content(id: string) {
-    const s = this.get(id),
-      folder = inside(s.root, s.game === 'beammp' ? 'Resources/Client' : 'plugins');
-    await rejectLinks(s.root, folder);
-    const entries = await fs.readdir(folder, { withFileTypes: true }).catch(() => []);
-    return Promise.all(
-      entries
-        .filter((e) => e.isFile())
-        .map(async (e) => ({
-          name: e.name,
-          bytes: (await fs.stat(inside(folder, e.name))).size,
-          enabled: !e.name.endsWith('.disabled'),
-        })),
-    );
+    return listContent(this.get(id));
   }
-  async importContent(id: string) {
+  async importContent(id: string, kind: ContentKind = 'auto') {
     const s = this.get(id);
     this.stopped(s);
-    if (s.game === 'minecraft' && s.core !== 'paper')
-      throw new Error(
-        'Vanilla не поддерживает JAR-плагины. Выберите Paper и установите соответствующее ядро.',
-      );
-    const ext = s.game === 'beammp' ? 'zip' : 'jar';
-    const picked = await dialog.showOpenDialog(this.window(), {
-      title:
-        s.game === 'beammp'
-          ? 'Карта или автомобиль BeamMP ZIP'
-          : 'Плагин Paper JAR (выполняемый код)',
-      filters: [{ name: 'Контент', extensions: [ext] }],
+    const pick = await dialog.showOpenDialog(this.window(), {
+      title: 'Добавить контент ' + s.game,
+      filters: [{ name: 'Контент', extensions: ['zip', 'jar', 'lua'] }],
       properties: ['openFile', 'multiSelections'],
     });
-    if (picked.canceled) return;
-    const dir = inside(s.root, s.game === 'beammp' ? 'Resources/Client' : 'plugins');
-    await rejectLinks(s.root, dir);
-    const files = [];
-    for (const source of picked.filePaths) {
-      const name = path.basename(source);
-      if (path.extname(name).toLowerCase() !== '.' + ext)
-        throw new Error('Неподдерживаемый формат');
-      const entries = await inspectZip(source);
-      if (s.game === 'beammp' && !entries.some((e) => /^(levels|vehicles)\//i.test(e.name)))
-        throw new Error(`${name}: нет папок levels/ или vehicles/`);
-      if (
-        s.game === 'minecraft' &&
-        !entries.some((e) => /^(paper-plugin|plugin)\.yml$/.test(e.name))
-      )
-        throw new Error(`${name}: отсутствует plugin.yml`);
-      files.push({ source, name, entries });
-    }
-    const preview = await dialog.showMessageBox(this.window(), {
-      type: 'warning',
-      message: `Установить файлов: ${files.length}?`,
-      detail:
-        files
-          .map(
-            (f) =>
-              `${f.name}: ${f.entries.length} элементов\n${f.entries
-                .slice(0, 5)
-                .map((e) => e.name)
-                .join('\n')}`,
-          )
-          .join('\n\n') +
-        '\nСовместимость с версией игры автоматически не подтверждена. Плагины выполняют код.',
-      buttons: ['Отмена', 'Установить'],
-      defaultId: 0,
-      cancelId: 0,
-    });
-    if (preview.response !== 1) return;
-    await this.backup(id);
-    await fs.mkdir(dir, { recursive: true });
-    for (const file of files) {
-      const target = inside(dir, file.name);
-      await rejectLinks(s.root, target);
-      if (
-        await fs
-          .access(target)
-          .then(() => true)
-          .catch(() => false)
-      )
-        throw new Error('Файл уже существует: ' + file.name);
-      await fs.copyFile(file.source, target, 2);
-    }
-    return this.content(id);
+    if (!pick.canceled)
+      return importFiles(s, pick.filePaths, kind, this.window(), () => this.backup(id));
+  }
+  async dropped(id: string, paths: string[], kind: ContentKind) {
+    const s = this.get(id);
+    this.stopped(s);
+    return importFiles(s, paths, kind, this.window(), () => this.backup(id));
   }
   async toggleContent(id: string, name: string) {
     const s = this.get(id);
     this.stopped(s);
-    const folder = inside(s.root, s.game === 'beammp' ? 'Resources/Client' : 'plugins');
-    const source = inside(folder, name),
-      target = inside(folder, name.endsWith('.disabled') ? name.slice(0, -9) : name + '.disabled');
-    await rejectLinks(s.root, source);
-    await rejectLinks(s.root, target);
-    if (
-      await fs
-        .access(target)
-        .then(() => true)
-        .catch(() => false)
-    )
-      throw new Error('Целевой файл уже существует');
-    await this.backup(id);
-    await fs.rename(source, target);
-    return this.content(id);
+    return toggleFile(s, name, () => this.backup(id));
   }
   async importWorld(id: string) {
-    const s = this.get(id);
-    this.stopped(s);
-    if (s.game !== 'minecraft') throw new Error('Импорт миров доступен для Minecraft');
-    const picked = await dialog.showOpenDialog(this.window(), {
-      title: 'ZIP мира: level.dat должен находиться в корне',
-      filters: [{ name: 'World ZIP', extensions: ['zip'] }],
-      properties: ['openFile'],
-    });
-    if (picked.canceled) return;
-    const entries = await inspectZip(picked.filePaths[0]);
-    if (!entries.some((e) => e.name === 'level.dat'))
-      throw new Error('В корне ZIP отсутствует level.dat');
-    const target = inside(s.root, s.world);
-    await rejectLinks(s.root, target);
-    const confirmation = await dialog.showMessageBox(this.window(), {
-      type: 'warning',
-      message: 'Заменить мир импортированным?',
-      detail:
-        'Существующий мир будет переименован после создания резервной копии. Импортируемые datapacks могут менять поведение игры.',
-      buttons: ['Отмена', 'Импортировать'],
-      cancelId: 0,
-      defaultId: 0,
-    });
-    if (confirmation.response !== 1) return;
-    await this.backup(id);
-    const stage = inside(s.root, 'import-' + crypto.randomUUID());
-    try {
-      await extractZip(picked.filePaths[0], stage);
-      if (
-        await fs
-          .access(target)
-          .then(() => true)
-          .catch(() => false)
-      )
-        await fs.rename(target, target + '.previous-' + Date.now());
-      await fs.rename(stage, target);
-    } finally {
-      await fs.rm(stage, { recursive: true, force: true });
-    }
+    return this.importContent(id, 'world');
   }
   private backupDir(id: string) {
     return path.join(this.data, 'backups', id);
@@ -736,7 +932,36 @@ export class Manager {
     );
     if (!parsed.success)
       throw new Error('Копия восстановлена; параметры требуют проверки перед запуском');
-    await configure(s, await this.secret(s));
+    if (s.game === 'assetto') {
+      const file = inside(s.root, 'cfg/server_cfg.ini');
+      await atomicWrite(
+        file,
+        patchIni(await fs.readFile(file, 'utf8'), {
+          SERVER: {
+            PASSWORD: (await this.passwords(s)).password ?? '',
+            ADMIN_PASSWORD: (await this.passwords(s)).adminPassword ?? '',
+          },
+        }),
+      );
+    } else if (s.game === 'acc') {
+      const file = inside(s.root, 'cfg/settings.json');
+      await writeJson(
+        file,
+        {
+          ...(await readJson(file)),
+          password: (await this.passwords(s)).password ?? '',
+          adminPassword: (await this.passwords(s)).adminPassword ?? '',
+        },
+        true,
+      );
+    } else if (s.game === 'evo') {
+      const file = inside(s.root, 'server_config.json');
+      await writeJson(file, {
+        ...(await readJson(file)),
+        driver_password: (await this.passwords(s)).password ?? '',
+        admin_password: (await this.passwords(s)).adminPassword ?? '',
+      });
+    } else await configure(s, await this.secret(s));
     await this.store.put(s);
     await this.refreshInstalled(s);
   }

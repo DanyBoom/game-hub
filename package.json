@@ -1,6 +1,6 @@
 {
   "name": "game-hub",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Local Windows game server manager",
   "author": "GameHub contributors",
@@ -60,6 +60,10 @@
       "package.json"
     ],
     "extraResources": [
+      {
+        "from": "dist-electron/ConsoleHost.exe",
+        "to": "ConsoleHost.exe"
+      },
       {
         "from": "node_modules/sql.js/dist/sql-wasm.wasm",
         "to": "sql-wasm.wasm"

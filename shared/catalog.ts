@@ -21,7 +21,7 @@ export const games: Game[] = [
     mark: 'M',
     support: 'early',
     description:
-      'Vanilla и Paper: импорт JAR, миры, консоль и остановка командой stop. Fabric, Forge и NeoForge позже.',
+      'Установка Vanilla, Paper, Fabric, Forge и NeoForge, подбор Java, версии, сид, моды и миры.',
     docs: 'https://www.minecraft.net/en-us/download/server',
   },
   {
@@ -31,9 +31,9 @@ export const games: Game[] = [
     genre: 'Автосимулятор',
     color: '#ef7177',
     mark: 'AC',
-    support: 'planned',
+    support: 'early',
     description:
-      'Следующий этап: отдельный адаптер acServer, INI и контент. Запуск пока недоступен.',
+      'Официальный acServer, трассы, машины, сессии, погода, entry list и перетаскивание ZIP.',
     docs: 'https://store.steampowered.com/app/244210/Assetto_Corsa/',
   },
   {
@@ -54,9 +54,9 @@ export const games: Game[] = [
     genre: 'Автосимулятор',
     color: '#bda2fa',
     mark: 'EVO',
-    support: 'planned',
+    support: 'early',
     description:
-      'Официальный Steam Tool существует. Его лаунчер и формат требуют отдельной интеграции.',
+      'Отдельный официальный EVO Server: реальные каталоги машин и трасс, события, погода и все JSON-параметры.',
     docs: 'https://support.505games.com/support/solutions/articles/150000225040-assetto-corsa-evo-dedicated-server-setup',
   },
   {
@@ -66,8 +66,9 @@ export const games: Game[] = [
     genre: 'Автосимулятор',
     color: '#edb36e',
     mark: 'ACC',
-    support: 'planned',
-    description: 'Планируется отдельный адаптер JSON, гоночных сессий и правил.',
+    support: 'early',
+    description:
+      'Официальный ACC Server: уик-энд, погода, классы, пит-стопы, участники и BoP через формы JSON.',
     docs: 'https://store.steampowered.com/app/805550/Assetto_Corsa_Competizione/',
   },
   {

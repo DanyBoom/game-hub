@@ -1,0 +1,164 @@
+.full-width {
+  grid-column: 1/-1;
+}
+.car-choices {
+  max-height: 230px;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 20px;
+  padding: 13px 17px;
+  background: #121319;
+  border: 1px solid #343440;
+  border-radius: 8px;
+}
+.car-choices .checkbox {
+  font-size: 11px;
+  margin: 0;
+  padding: 6px 0;
+}
+.drop-zone {
+  border: 1px dashed #73608f;
+  background: linear-gradient(120deg, #a88ce209, #16151d);
+  border-radius: 12px;
+  padding: 40px 25px;
+  text-align: center;
+  margin: 24px 0;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+.drop-zone > svg {
+  color: #b098d6;
+  margin-bottom: 16px;
+}
+.drop-zone h3 {
+  margin-bottom: 10px;
+}
+.drop-zone p {
+  font-size: 12px;
+  max-width: 650px;
+  margin: 0 auto 20px;
+}
+.drop-zone select {
+  max-width: 360px;
+  font-size: 12px;
+}
+.drop-zone.dragging {
+  background: #a080d92a;
+  border: 2px solid #bfa3ff;
+  box-shadow: 0 0 35px #a080d92a;
+}
+.config-group {
+  border: 1px solid #36303e;
+  border-radius: 10px;
+  padding: 20px;
+  margin: 24px 0;
+  min-width: 0;
+  grid-column: 1/-1;
+}
+.config-group legend {
+  font-size: 12px;
+  color: #bca6d9;
+  padding: 0 9px;
+}
+.config-group > .form-grid {
+  margin: 12px 0;
+}
+.config-group .config-group {
+  background: #13121977;
+  margin: 8px 0;
+}
+.config-group .field span {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.config-array-row {
+  border-bottom: 1px solid #302a38;
+  padding: 12px 0 20px;
+  margin-bottom: 20px;
+}
+.add-property {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 17px 0 0;
+  margin-top: 16px;
+  border-top: 1px dashed #39313f;
+}
+.add-property input {
+  flex: 1;
+  font-size: 11px;
+}
+.add-property select {
+  width: 150px;
+  font-size: 11px;
+}
+.installation-status {
+  border: 1px solid #615074;
+  background: #aa84d80a;
+  padding: 17px;
+  border-radius: 8px;
+  margin: 15px 0 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 12px;
+}
+.installation-status progress {
+  width: 100%;
+  height: 8px;
+  accent-color: #ab8de9;
+}
+.installation-status small {
+  overflow-wrap: anywhere;
+}
+.tabs {
+  gap: 17px;
+}
+.tabs button {
+  font-size: 10px;
+}
+.modal {
+  max-width: 890px;
+}
+.modal-body {
+  min-height: 340px;
+}
+.form-grid select {
+  font-size: 12px;
+}
+.player-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.preset-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0 22px;
+}
+.preset-row button {
+  font-size: 10px;
+}
+.section-heading .button-row {
+  justify-content: flex-end;
+}
+@media (max-width: 1200px) {
+  .car-choices {
+    grid-template-columns: 1fr;
+  }
+  .add-property {
+    flex-wrap: wrap;
+  }
+  .add-property input {
+    min-width: 200px;
+  }
+  .config-group {
+    padding: 15px;
+  }
+  .tabs {
+    gap: 12px;
+  }
+}

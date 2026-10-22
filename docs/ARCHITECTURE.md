@@ -1,19 +1,17 @@
 # Архитектура
 
-```text
-React → sandboxed preload → validated IPC → Electron main
-                                          ├─ Manager → adapters → configs
-                                          ├─ Store → SQLite (sql.js)
-                                          ├─ archives → bounded ZIP backup/restore
-                                          └─ per-server supervisor → process
-```
+React → sandboxed preload → валидируемый IPC → Electron Main.
 
-`shared/` — контракты и каталог, `src/` — UI, `electron/main.ts` — граница доверия и очередь изменений. Чтение состояния не блокируется загрузкой/остановкой. `manager.ts` — экземпляры и процессы, `adapters.ts` — реальные конфигурации BeamMP и Minecraft. Секрет не передаётся обратно в UI.
+- Manager: экземпляры, SQLite, процессы, DPAPI, очередь изменяющих действий и прогресс установок.
+- adapters.ts: BeamMP TOML и Minecraft properties.
+- racing.ts: самостоятельные AC INI, ACC UTF-16 JSON и EVO JSON/сжатый протокол. Генерация и чтение полей официальных конфигураций.
+- steam.ts: библиотеки Steam, обнаружение Tool, копирование в независимую папку. Нет хранения учётных данных Steam и обхода лицензий.
+- minecraft.ts / downloads.ts: официальные метаданные и загрузки, allowlist HTTPS/redirect, хеши, Java по версии, загрузчики и запуск без shell.
+- content.ts / archives.ts: проверка, определение типа, preview, изолированная распаковка, резервные копии, включение/отключение.
+- runner.ts: отдельный supervisor, stdin/stdout, буферизация полных строк для маскировки секретов, завершение при потере main.
+- native/ConsoleHost.cs: одна скрытая консоль на гоночный сервер; CTRL+C только её процессам, без воздействия на Steam или другие серверы.
+- ConfigEditor: формы всех реальных параметров; секреты заменены маркером сохранения, который main восстанавливает перед записью.
 
-SQLite хранится вне checkout; sql.js устраняет native ABI-сборку SQLite. Небольшая база сохраняется атомарной заменой файла. Экземпляры получают UUID-папки и уникальные порты, до трёх активных процессов.
+Перетаскивание получает реальные File через webUtils в preload; общий IPC не принимает произвольные пути импорта от renderer. Исходники из dialog и drag проходят одинаковые проверки. Node integration отключена, contextIsolation и sandbox включены, новые окна/навигация и разрешения renderer запрещены.
 
-Supervisor запускается Electron в Node-режиме и общается с main по приватному IPC, передаёт stdout/stderr. Команды остановки — exit / stop; main ждёт закрытия процесса. Disconnect запрашивает штатную остановку. Журнал PID служит диагностике, не автоматическому kill/attach.
-
-Для новой игры нужны собственные конфигурации, подтверждённый запуск/остановка, контент, сохранения и тесты. EVO не использует INI оригинальной AC. Valheim требует Windows helper с CTRL+C: ChildProcess.kill() не принимается за безопасное сохранение.
-
-Перед расширением каталога Manager нужно разделить на ProcessService, BackupService, ContentService и AdapterRegistry.
+Данные пользователя находятся вне checkout. Тесты и проверочные серверы используют отдельные профили; бинарники игр и реальные логи не публикуются.

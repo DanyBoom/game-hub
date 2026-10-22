@@ -14,4 +14,15 @@
 - [Le Mans Ultimate](https://guide.lemansultimate.com/hc/en-gb) — официальная справка о Hosted Servers.
 - [Electron security](https://www.electronjs.org/docs/latest/tutorial/security) — isolation, sandbox, preload.
 
-Для AC 2014 и ACC форматы нужно сверять с документацией в официальных Steam Tools; версия 0.1 эти конфигурации не генерирует.
+В 0.2 форматы сверены с установленными Steam Tools: cfg/server_cfg.ini и entry_list.ini оригинальной AC, ServerAdminHandbook.pdf и cfg/current у ACC, cars.json, events_*.json, справка CLI и поля официального ServerLauncher у EVO. Форматы трёх игр независимы. Реальные серверы проверены на запуск, TCP-порты и CTRL+C.
+
+Установка Minecraft использует собственные первичные сервисы поставщиков:
+
+- [Каталог Mojang](https://piston-meta.mojang.com/mc/game/version_manifest_v2.json).
+- [Paper Downloads Service](https://docs.papermc.io/misc/downloads-service/).
+- [Fabric Meta](https://meta.fabricmc.net/).
+- [Forge Maven](https://maven.minecraftforge.net/).
+- [NeoForge Maven](https://maven.neoforged.net/).
+- [Adoptium API](https://api.adoptium.net/).
+
+Протокол сжатых параметров EVO дополнительно сверен с первичным инженерным примером [evo-server-launcher](https://github.com/plrmntonio/evo-server-launcher), затем проверен на официальном EXE. Исходный код стороннего лаунчера в GameHub не включён.

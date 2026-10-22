@@ -105,10 +105,17 @@ export async function zipFolder(root: string, target: string) {
         const full = path.join(dir, entry.name);
         await rejectLinks(root, full);
         const relative = path.relative(root, full).replace(/\\/g, '/');
-        if (entry.isDirectory()) await walk(full);
-        else if (
+        if (entry.isDirectory()) {
+          if (
+            !/^(logs|log|cache|libraries|versions)(\/|$)/i.test(relative) &&
+            !entry.name.startsWith('.import-')
+          )
+            await walk(full);
+        } else if (
           entry.isFile() &&
-          !/\.(exe|dll|jar|log|tmp)$/i.test(entry.name) &&
+          !/\.(exe|dll|kspkg|log|tmp)$/i.test(entry.name) &&
+          entry.name !== 'server.jar' &&
+          entry.name !== 'gamehub-installer.jar' &&
           !/^(logs|cache|libraries|versions)\//i.test(relative)
         ) {
           if (relative === 'ServerConfig.toml') {
@@ -116,6 +123,40 @@ export async function zipFolder(root: string, target: string) {
             const general = data.General as Record<string, any>;
             if (general) general.AuthKey = '';
             zip.addBuffer(Buffer.from(TOML.stringify(data)), relative);
+          } else if (/^(cfg\/.*\.json|server_config\.json|season_config\.json)$/i.test(relative)) {
+            const bytes = await fs.readFile(full);
+            const utf16 = bytes[0] === 255 && bytes[1] === 254;
+            const text = utf16
+              ? bytes.subarray(2).toString('utf16le')
+              : bytes.toString('utf8').replace(/^\uFEFF/, '');
+            const scrub = (v: any): any =>
+              Array.isArray(v)
+                ? v.map(scrub)
+                : v && typeof v === 'object'
+                  ? Object.fromEntries(
+                      Object.entries(v).map(([k, val]) => [
+                        k,
+                        /password|authkey|token|secret/i.test(k) ? '' : scrub(val),
+                      ]),
+                    )
+                  : v;
+            const clean = JSON.stringify(scrub(JSON.parse(text)), null, 2);
+            zip.addBuffer(
+              utf16
+                ? Buffer.concat([Buffer.from([255, 254]), Buffer.from(clean, 'utf16le')])
+                : Buffer.from(clean),
+              relative,
+            );
+          } else if (relative === 'cfg/server_cfg.ini') {
+            zip.addBuffer(
+              Buffer.from(
+                (await fs.readFile(full, 'utf8')).replace(
+                  /^(\s*(?:PASSWORD|ADMIN_PASSWORD)\s*=).*$/gim,
+                  '$1',
+                ),
+              ),
+              relative,
+            );
           } else zip.addFile(full, relative);
         }
       }

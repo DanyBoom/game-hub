@@ -27,7 +27,9 @@ const systemKeys = new Set([
 function stop() {
   if (!server || stopping) return;
   stopping = true;
-  server.stdin.write(`${process.env.GAMEHUB_STOP === 'stop' ? 'stop' : 'exit'}\n`);
+  server.stdin.write(
+    `${process.env.GAMEHUB_STOP === 'native' ? '__GAMEHUB_STOP__' : process.env.GAMEHUB_STOP === 'stop' ? 'stop' : 'exit'}\n`,
+  );
 }
 process.on(
   'message',
@@ -52,7 +54,9 @@ process.on(
       const send = (msg: unknown) => {
         if (process.connected) process.send?.(msg);
       };
-      server.once('spawn', () => send({ type: 'pid', pid: server!.pid }));
+      server.once('spawn', () => {
+        if (process.env.GAMEHUB_STOP !== 'native') send({ type: 'pid', pid: server!.pid });
+      });
       for (const [streamName, stream] of [
         ['out', server.stdout],
         ['error', server.stderr],
@@ -68,6 +72,15 @@ process.on(
               suppress = true;
             }
             if (part.endsWith('\n')) {
+              if (
+                process.env.GAMEHUB_STOP === 'native' &&
+                /^__GAMEHUB_PID__\d+\s*$/.test(pending)
+              ) {
+                send({ type: 'pid', pid: Number(pending.slice(15).trim()) });
+                pending = '';
+                suppress = false;
+                continue;
+              }
               send({
                 type: 'log',
                 stream: streamName,

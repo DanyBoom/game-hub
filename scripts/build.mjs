@@ -1,4 +1,6 @@
 import { build } from 'esbuild';
+import { execFileSync } from 'node:child_process';
+import path from 'node:path';
 await build({
   entryPoints: ['electron/main.ts'],
   bundle: true,
@@ -25,3 +27,22 @@ await build({
   outfile: 'dist-electron/runner.cjs',
   sourcemap: false,
 });
+if (process.platform === 'win32')
+  execFileSync(
+    path.join(
+      process.env.WINDIR ?? 'C:\\Windows',
+      'Microsoft.NET',
+      'Framework64',
+      'v4.0.30319',
+      'csc.exe',
+    ),
+    [
+      '/nologo',
+      '/target:exe',
+      '/optimize+',
+      '/debug-',
+      '/out:' + path.resolve('dist-electron', 'ConsoleHost.exe'),
+      path.resolve('native', 'ConsoleHost.cs'),
+    ],
+    { stdio: 'inherit', windowsHide: true },
+  );

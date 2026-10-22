@@ -24,6 +24,18 @@ async function quitSafely() {
   if (closePrompt) return;
   closePrompt = true;
   try {
+    if (manager.installing) {
+      const choice = await dialog.showMessageBox(win, {
+        type: 'question',
+        buttons: ['Остаться', 'Отменить установку и выйти'],
+        defaultId: 0,
+        cancelId: 0,
+        message: 'Идёт установка серверного ПО',
+        detail: 'Перед выходом остановим загрузку и установщик. Игровые миры не удаляются.',
+      });
+      if (choice.response !== 1) return;
+      await manager.cancelAllInstalls();
+    }
     if (manager.running.size) {
       const choice = await dialog.showMessageBox(win, {
         type: 'question',
@@ -114,6 +126,30 @@ if (gotLock)
             const id = () => idSchema.parse(payload);
             let result: unknown;
             switch (action) {
+              case 'gameOptions':
+                result = await manager.options(z.union([idSchema, gameId]).parse(payload));
+                break;
+              case 'versions':
+                result = await manager.versions(
+                  z.enum(['vanilla', 'paper', 'fabric', 'forge', 'neoforge']).parse(payload),
+                );
+                break;
+              case 'configDocuments':
+                result = await manager.documents(id());
+                break;
+              case 'saveConfigDocument': {
+                const v = z
+                  .object({ id: idSchema, name: z.string().max(200), data: z.record(z.unknown()) })
+                  .strict()
+                  .parse(payload);
+                if (JSON.stringify(v.data).length > 2 * 1024 ** 2)
+                  throw new Error('Конфигурация слишком велика');
+                result = await manager.saveDocument(v.id, v.name, v.data);
+                break;
+              }
+              case 'cancelInstall':
+                result = manager.cancelInstall(id());
+                break;
               case 'snapshot':
                 result = await manager.snapshot();
                 break;
@@ -160,7 +196,9 @@ if (gotLock)
                 result = await manager.importBinary(id());
                 break;
               case 'chooseJava':
-                result = await manager.chooseJava();
+                result = await manager.chooseJava(
+                  payload === undefined ? undefined : idSchema.parse(payload),
+                );
                 break;
               case 'setRoot':
                 result = await manager.setRoot();
@@ -172,7 +210,23 @@ if (gotLock)
                 result = await manager.content(id());
                 break;
               case 'importContent':
-                result = await manager.importContent(id());
+                {
+                  const v = z
+                    .union([
+                      idSchema,
+                      z
+                        .object({
+                          id: idSchema,
+                          kind: z.enum(['auto', 'server', 'world', 'datapack']),
+                        })
+                        .strict(),
+                    ])
+                    .parse(payload);
+                  result = await manager.importContent(
+                    typeof v === 'string' ? v : v.id,
+                    typeof v === 'string' ? 'auto' : v.kind,
+                  );
+                }
                 break;
               case 'toggleContent': {
                 const v = z
@@ -182,7 +236,7 @@ if (gotLock)
                       .string()
                       .min(1)
                       .max(200)
-                      .regex(/^[^\\/:\x00]+$/),
+                      .regex(/^[^:\x00]+$/),
                   })
                   .strict()
                   .parse(payload);
@@ -227,8 +281,45 @@ if (gotLock)
           }
         };
         // Reads do not wait behind a download or graceful stop. Mutations are serialized.
-        if (['snapshot', 'logs', 'content', 'backups'].includes(String(action))) return execute();
+        if (
+          [
+            'snapshot',
+            'logs',
+            'content',
+            'backups',
+            'gameOptions',
+            'versions',
+            'configDocuments',
+            'cancelInstall',
+          ].includes(String(action))
+        )
+          return execute();
         const next = queue.then(execute, execute);
+        queue = next;
+        return next;
+      });
+      ipcMain.handle('gamehub:drop', async (event, payload) => {
+        if (
+          event.senderFrame !== win.webContents.mainFrame ||
+          event.senderFrame.url !== (development ? devUrl + '/' : productionUrl)
+        )
+          return { ok: false, error: 'Недоверенный источник' };
+        const run = async () => {
+          try {
+            const value = z
+              .object({
+                id: idSchema,
+                paths: z.array(z.string().min(1).max(4096)).min(1).max(30),
+                kind: z.enum(['auto', 'world', 'server', 'datapack']),
+              })
+              .strict()
+              .parse(payload);
+            return { ok: true, data: await manager.dropped(value.id, value.paths, value.kind) };
+          } catch (error) {
+            return { ok: false, error: redact((error as Error).message) };
+          }
+        };
+        const next = queue.then(run, run);
         queue = next;
         return next;
       });

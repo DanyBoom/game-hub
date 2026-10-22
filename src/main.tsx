@@ -50,6 +50,11 @@ import type {
 } from '../shared/contracts';
 import { serverInput } from '../shared/contracts';
 import './style.css';
+import './extended.css';
+import { ConfigFields } from './SettingsFields';
+import { ConfigEditor } from './ConfigEditor';
+import { ContentPanel } from './ContentPanel';
+import { PlayersPanel } from './PlayersPanel';
 declare global {
   interface Window {
     gamehub?: HubAPI;
@@ -192,7 +197,38 @@ function App() {
           </div>
         </div>
       </aside>
-      <main>
+      <main
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={async (e) => {
+          e.preventDefault();
+          if (!current) {
+            setToast('Откройте сервер, в который нужно добавить контент');
+            return;
+          }
+          if (busy) {
+            setToast('Дождитесь завершения операции');
+            return;
+          }
+          setBusy(true);
+          try {
+            const result: any = await api!.dropFiles(
+              current.id,
+              Array.from(e.dataTransfer.files),
+              'auto',
+            );
+            setToast(
+              result?.maps?.length
+                ? 'Карта обнаружена: ' + result.maps.join(', ')
+                : 'Контент импортирован',
+            );
+            await refresh();
+          } catch (error) {
+            setToast((error as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
         <header className="topbar">
           <div className="crumb">
             Рабочее пространство <ChevronRight size={14} />
@@ -436,8 +472,9 @@ function App() {
                   <div className="notice">
                     <Activity size={17} />
                     <span>
-                      Версия 0.1: BeamMP и Minecraft имеют рабочий код управления. Игровая проверка
-                      на вашем ПК ещё требуется. Другие адаптеры пока недоступны.
+                      BeamMP, Minecraft Java, AC, ACC и EVO настраиваются здесь. Серверное ПО
+                      устанавливается отдельно по официальным лицензиям, настройки остаются в
+                      GameHub.
                     </span>
                   </div>
                   <div className="game-grid">
@@ -533,15 +570,31 @@ function App() {
                               </>
                             ) : g.id === 'minecraft' ? (
                               <>
-                                <li>Установите Java нужной для вашего ядра версии.</li>
+                                <li>Выберите ядро, версию Minecraft, сид и правила мира.</li>
                                 <li>
-                                  Скачайте официальный Vanilla или Paper JAR и импортируйте его.
+                                  Нажмите «Установить ядро + Java» — файлы загрузятся из официальных
+                                  источников.
                                 </li>
-                                <li>Выберите java.exe. Прочитайте и явно примите EULA.</li>
+                                <li>Перед загрузкой прочитайте и явно примите EULA.</li>
                                 <li>
                                   При необходимости импортируйте ZIP мира с level.dat в корне.
                                 </li>
                                 <li>Останавливайте сервер кнопкой, чтобы сохранить мир.</li>
+                              </>
+                            ) : ['assetto', 'acc', 'evo'].includes(g.id) ? (
+                              <>
+                                <li>
+                                  Создайте экземпляр и нажмите «Установить / обнаружить в Steam».
+                                </li>
+                                <li>Выберите трассу, автомобили или класс и настройте сессии.</li>
+                                <li>
+                                  Участники, BoP и редкие настройки находятся во вкладке «Все
+                                  параметры».
+                                </li>
+                                <li>Для AC перетащите ZIP машин или трасс во вкладку контента.</li>
+                                <li>
+                                  Запустите сервер; при остановке GameHub отправит Windows CTRL+C.
+                                </li>
                               </>
                             ) : (
                               <>
@@ -593,7 +646,7 @@ function App() {
                     <h2>Зависимости и ресурсы</h2>
                     <p>
                       До трёх активных серверов. Перед запуском Minecraft проверяется свободная
-                      память. Java выбирается вручную.
+                      память. Подходящая Java устанавливается вместе с ядром; можно выбрать свою.
                     </p>
                     <button
                       className="secondary"
@@ -788,131 +841,6 @@ function Field({
     </label>
   );
 }
-function ConfigFields({
-  value: v,
-  set,
-  game,
-  basics = true,
-}: {
-  value: ServerInput;
-  set: (v: ServerInput) => void;
-  game: Game;
-  basics?: boolean;
-}) {
-  const patch = (key: keyof ServerInput, value: unknown) => set({ ...v, [key]: value });
-  return (
-    <div className="form-grid">
-      {basics && (
-        <>
-          <Field label="Название сервера">
-            <input value={v.name} maxLength={100} onChange={(e) => patch('name', e.target.value)} />
-          </Field>
-          <Field label="Количество игроков">
-            <input
-              type="number"
-              min={1}
-              max={128}
-              value={v.players}
-              onChange={(e) => patch('players', Number(e.target.value))}
-            />
-          </Field>
-          <Field label="Порт" hint={game.id === 'beammp' ? 'TCP и UDP' : 'TCP'}>
-            <input
-              type="number"
-              min={1024}
-              max={65535}
-              value={v.port}
-              onChange={(e) => patch('port', Number(e.target.value))}
-            />
-          </Field>
-        </>
-      )}
-      {game.id === 'beammp' ? (
-        <>
-          <Field label="Карта" hint="Для мод-карты используйте фактический путь внутри ZIP.">
-            <input value={v.map} onChange={(e) => patch('map', e.target.value)} />
-          </Field>
-          <Field label="Машин на игрока">
-            <input
-              type="number"
-              min={1}
-              max={20}
-              value={v.maxCars}
-              onChange={(e) => patch('maxCars', Number(e.target.value))}
-            />
-          </Field>
-          <Field
-            label="AuthKey"
-            hint="Не отображается повторно. Оставьте пустым, чтобы сохранить прежний ключ."
-          >
-            <input
-              type="password"
-              autoComplete="off"
-              value={v.authKey ?? ''}
-              onChange={(e) => patch('authKey', e.target.value)}
-            />
-          </Field>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={v.public}
-              onChange={(e) => patch('public', e.target.checked)}
-            />{' '}
-            Показывать в публичном списке
-          </label>
-        </>
-      ) : (
-        <>
-          <Field label="Ядро" hint="Выбор должен совпадать с импортированным JAR.">
-            <select value={v.core} onChange={(e) => patch('core', e.target.value)}>
-              <option value="vanilla">Vanilla</option>
-              <option value="paper">Paper</option>
-            </select>
-          </Field>
-          <Field label="RAM, МБ">
-            <input
-              type="number"
-              min={512}
-              max={32768}
-              step={512}
-              value={v.memory}
-              onChange={(e) => patch('memory', Number(e.target.value))}
-            />
-          </Field>
-          <Field label="Папка мира" hint="Латинские буквы, цифры, _ и -">
-            <input value={v.world} onChange={(e) => patch('world', e.target.value)} />
-          </Field>
-          <Field label="Сложность">
-            <select value={v.difficulty} onChange={(e) => patch('difficulty', e.target.value)}>
-              {['peaceful', 'easy', 'normal', 'hard'].map((s, i) => (
-                <option key={s} value={s}>
-                  {['Мирная', 'Лёгкая', 'Обычная', 'Сложная'][i]}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Режим игры">
-            <select value={v.gamemode} onChange={(e) => patch('gamemode', e.target.value)}>
-              {['survival', 'creative', 'adventure', 'spectator'].map((s, i) => (
-                <option key={s} value={s}>
-                  {['Выживание', 'Творчество', 'Приключение', 'Наблюдатель'][i]}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={v.eula}
-              onChange={(e) => patch('eula', e.target.checked)}
-            />{' '}
-            Я прочитал и принимаю Minecraft EULA на minecraft.net/eula
-          </label>
-        </>
-      )}
-    </div>
-  );
-}
 function Wizard({
   game,
   close,
@@ -933,7 +861,12 @@ function Wizard({
     serverInput.parse({
       game: game.id,
       name: `Мой ${game.title}`,
-      port: game.id === 'beammp' ? 30814 : 25565,
+      port: (
+        { beammp: 30814, minecraft: 25565, assetto: 9600, acc: 9231, evo: 9700 } as Record<
+          string,
+          number
+        >
+      )[game.id],
       players: game.id === 'beammp' ? 8 : 12,
     }),
   );
@@ -982,12 +915,18 @@ function Wizard({
                 <ArrowDownToLine size={22} />
                 <div>
                   <strong>
-                    {game.id === 'beammp' ? 'Официальный BeamMP Server' : 'Vanilla или Paper JAR'}
+                    {game.id === 'beammp'
+                      ? 'Официальный BeamMP Server'
+                      : game.id === 'minecraft'
+                        ? 'Ядро Minecraft + подходящая Java'
+                        : 'Официальный сервер Steam Tools'}
                   </strong>
                   <p>
                     {game.id === 'beammp'
                       ? 'После создания нажмите «Установить». Приложение предложит скачать EXE из официального GitHub BeamMP с подтверждением размера.'
-                      : 'После создания импортируйте серверный JAR с официального сайта и выберите установленный java.exe. Версия Java должна соответствовать ядру.'}
+                      : game.id === 'minecraft'
+                        ? 'После создания нажмите «Установить ядро + Java». GameHub скачает выбранную версию из официального источника и подготовит runtime.'
+                        : 'GameHub обнаружит установленный Steam Tool и скопирует его в отдельную папку экземпляра. Если его нет — откроет официальную установку Steam. Настройки редактируются внутри GameHub.'}
                   </p>
                 </div>
               </div>
@@ -1041,7 +980,11 @@ function Wizard({
               <p>
                 {game.id === 'beammp'
                   ? 'После создания откройте «Контент»: выберите ZIP с папками vehicles/ или levels/. GameHub проверит структуру и покажет состав архива перед установкой.'
-                  : 'После создания импортируйте мир ZIP через «Контент». Для Paper доступны JAR-плагины. Vanilla не поддерживает Forge/Fabric-моды.'}
+                  : game.id === 'minecraft'
+                    ? 'Перетаскивайте ZIP миров/datapacks и JAR модов прямо в окно. GameHub учитывает выбранное ядро: Paper, Fabric, Forge или NeoForge.'
+                    : game.id === 'assetto'
+                      ? 'Перетащите ZIP с машиной или трассой — GameHub распознает content/cars и content/tracks.'
+                      : 'Официальные ACC/EVO используют собственные каталоги. Пользовательские ZIP-машины/трассы не обещаются; остальные настройки доступны в формах.'}
               </p>
               <div className="notice">
                 <ShieldCheck size={20} />
@@ -1246,6 +1189,8 @@ function Details({
           ['backups', 'Резервные копии'],
           ['network', 'Подключение'],
           ['diagnostics', 'Диагностика'],
+          ['advanced', 'Все параметры'],
+          ...(s.game === 'minecraft' ? [['players', 'Игроки']] : []),
         ].map(([id, title]) => (
           <button key={id} className={tab === id ? 'selected' : ''} onClick={() => setTab(id)}>
             {title}
@@ -1278,18 +1223,42 @@ function Details({
               icon={Network}
               label="Игровой порт"
               value={String(s.port)}
-              note={s.game === 'beammp' ? 'TCP + UDP' : 'TCP'}
+              note={s.game !== 'minecraft' ? 'TCP + UDP' : 'TCP'}
             />
           </div>
           <div className="settings-grid">
             <div className="panel">
               <h2>Подготовка к запуску</h2>
+              {s.installation && (
+                <div className="installation-status">
+                  <strong>{s.installation.phase}</strong>
+                  {s.installation.total && (
+                    <progress value={s.installation.bytes ?? 0} max={s.installation.total} />
+                  )}
+                  <small>
+                    {s.installation.bytes
+                      ? Math.round(s.installation.bytes / 1024 ** 2) + ' МБ'
+                      : ''}{' '}
+                    {s.installation.error ?? ''}
+                  </small>
+                  {busy && s.game === 'minecraft' && (
+                    <button
+                      className="secondary small"
+                      onClick={() => void api!.call('cancelInstall', s.id)}
+                    >
+                      Отменить загрузку
+                    </button>
+                  )}
+                </div>
+              )}
               <ol>
                 <li>Установите или импортируйте серверное ПО.</li>
                 <li>
                   {s.game === 'beammp'
                     ? 'Заполните AuthKey в настройках.'
-                    : 'Выберите Java и примите EULA в настройках.'}
+                    : s.game === 'minecraft'
+                      ? 'Выберите версию ядра, примите EULA и нажмите «Установить».'
+                      : 'Выберите трассу, машины и сессии в настройках.'}
                 </li>
                 <li>Запустите диагностику и исправьте предупреждения.</li>
                 <li>Запустите сервер. Проверьте готовность в его консоли.</li>
@@ -1301,7 +1270,11 @@ function Details({
                   onClick={() => void mutate('install')}
                 >
                   <ArrowDownToLine size={16} />
-                  {s.game === 'beammp' ? 'Установить BeamMP' : 'Импортировать JAR'}
+                  {s.game === 'beammp'
+                    ? 'Установить BeamMP'
+                    : s.game === 'minecraft'
+                      ? 'Установить ядро + Java'
+                      : 'Установить / обнаружить в Steam'}
                 </button>
                 {s.game === 'beammp' && (
                   <button
@@ -1317,7 +1290,7 @@ function Details({
                 <button
                   className="secondary"
                   disabled={busy}
-                  onClick={() => void run('chooseJava')}
+                  onClick={() => void run('chooseJava', s.id)}
                 >
                   Выбрать java.exe
                 </button>
@@ -1341,6 +1314,15 @@ function Details({
           </div>
         </>
       )}
+      {tab === 'advanced' && (
+        <ConfigEditor
+          server={s}
+          notify={notify}
+          busy={busy}
+          save={(name, data) => run('saveConfigDocument', { id: s.id, name, data })}
+        />
+      )}
+      {tab === 'players' && <PlayersPanel server={s} busy={busy} run={run} />}
       {tab === 'settings' && (
         <div className="panel">
           <div className="section-heading">
@@ -1354,6 +1336,7 @@ function Details({
               setForm(v);
             }}
             game={game}
+            serverId={s.id}
           />
           <p>
             Неизвестные поля конфигурации сохраняются. TOML форматируется заново. Перед сохранением
@@ -1430,65 +1413,7 @@ function Details({
           </form>
         </div>
       )}
-      {tab === 'content' && (
-        <div className="panel">
-          <div className="section-heading">
-            <h2>{s.game === 'beammp' ? 'Карты и автомобили' : 'Миры и плагины'}</h2>
-            <div className="button-row">
-              {s.game === 'minecraft' && (
-                <button
-                  className="secondary"
-                  disabled={busy || running}
-                  onClick={() => void mutate('importWorld')}
-                >
-                  <Upload size={16} />
-                  Импорт мира ZIP
-                </button>
-              )}
-              <button
-                className="primary"
-                disabled={busy || running || (s.game === 'minecraft' && s.core !== 'paper')}
-                onClick={() => void mutate('importContent')}
-              >
-                <Plus size={16} />
-                {s.game === 'beammp' ? 'Добавить ZIP' : 'Добавить плагин JAR'}
-              </button>
-            </div>
-          </div>
-          <p>
-            {s.game === 'beammp'
-              ? 'ZIP хранится в Resources/Client. Игроки получат этот контент при подключении. После установки карты укажите её путь в настройках.'
-              : 'Плагины работают только с установленным Paper. Fabric, Forge, NeoForge и datapacks через UI пока не поддерживаются.'}
-          </p>
-          {content.length ? (
-            <div className="file-list">
-              {content.map((f) => (
-                <div key={f.name}>
-                  <Layers size={19} />
-                  <strong>{f.name}</strong>
-                  <span>{size(f.bytes)}</span>
-                  <button
-                    className="secondary small"
-                    disabled={busy || running}
-                    onClick={() => void mutate('toggleContent', { id: s.id, name: f.name })}
-                  >
-                    {f.enabled ? 'Отключить' : 'Включить'}
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="small-empty">
-              <Upload size={30} />
-              <p>Добавленного контента пока нет</p>
-            </div>
-          )}
-          <div className="notice">
-            Архив проверяется перед копированием. Проверка совместимости версий и антивирусная
-            проверка не выполняются. Устанавливайте доверенный контент.
-          </div>
-        </div>
-      )}
+      {tab === 'content' && <ContentPanel server={s} busy={busy} run={run} notify={notify} />}
       {tab === 'backups' && (
         <div className="panel">
           <div className="section-heading">
@@ -1503,9 +1428,10 @@ function Details({
             </button>
           </div>
           <p>
-            Копии создаются только после остановки сервера. Исполняемые EXE, JAR, DLL, логи и кеши
-            исключены. AuthKey BeamMP очищается; после восстановления используется ключ из DPAPI.
-            Копии могут содержать данные игроков и пароли из пользовательских файлов.
+            Копии создаются после остановки сервера. Ядро сервера, EXE, DLL, официальные пакеты и
+            кеши исключены; пользовательские моды JAR сохраняются. Из известных конфигураций секреты
+            очищаются и восстанавливаются из DPAPI. Копии могут содержать данные игроков и пароли из
+            пользовательских файлов.
           </p>
           {backups.length ? (
             <div className="file-list">
