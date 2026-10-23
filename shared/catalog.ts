@@ -43,8 +43,9 @@ export const games: Game[] = [
     genre: 'Выживание',
     color: '#91a8dd',
     mark: 'V',
-    support: 'planned',
-    description: 'Планируется безопасная остановка через Windows console signal, миры и Crossplay.',
+    support: 'early',
+    description:
+      'Автоустановка SteamCMD, отдельные миры, пароль, Crossplay и штатное сохранение при остановке.',
     docs: 'https://www.valheimgame.com/support/a-guide-to-dedicated-servers/',
   },
   {
@@ -82,5 +83,29 @@ export const games: Game[] = [
     description:
       'Информационная карточка внешнего хостинга. GameHub не запускает LMU локально и не оплачивает услуги.',
     docs: 'https://guide.lemansultimate.com/hc/en-gb',
+  },
+  {
+    id: 'terraria',
+    title: 'Terraria',
+    subtitle: 'Dedicated Server',
+    genre: 'Приключения',
+    color: '#89cf87',
+    mark: 'T',
+    support: 'early',
+    description:
+      'Официальная автоматическая установка, размер мира, сид, сложность и отдельные сохранения.',
+    docs: 'https://terraria.wiki.gg/wiki/Guide:Setting_up_a_Terraria_server',
+  },
+  {
+    id: 'factorio',
+    title: 'Factorio',
+    subtitle: 'Linux Headless',
+    genre: 'Автоматизация',
+    color: '#e5ae68',
+    mark: 'F',
+    support: 'early',
+    description:
+      'Linux-панель: официальный headless, генерация мира, автосохранения и моды через mod-list.json.',
+    docs: 'https://wiki.factorio.com/Multiplayer#Dedicated/Headless_server',
   },
 ];

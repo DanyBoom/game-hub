@@ -12,5 +12,13 @@
     "types": ["node"],
     "noEmit": true
   },
-  "include": ["src", "electron", "shared", "tests", "vite.config.ts"]
+  "include": [
+    "src",
+    "electron",
+    "shared",
+    "tests",
+    "vite.config.ts",
+    "server",
+    "vite.server.config.ts"
+  ]
 }

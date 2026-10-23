@@ -27,3 +27,6 @@ userdata/
 Thumbs.db
 .idea/
 .vscode/
+
+dist-server/
+server-data/

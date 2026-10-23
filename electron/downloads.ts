@@ -2,6 +2,13 @@ import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 export const userAgent = 'GameHub/0.2 (https://github.com/DanyBoom/game-hub)';
 const hosts = new Set([
+  'terraria.org',
+  'www.terraria.org',
+  'factorio.com',
+  'www.factorio.com',
+  'dl.factorio.com',
+  'steamcdn-a.akamaihd.net',
+  'api.github.com',
   'piston-meta.mojang.com',
   'launchermeta.mojang.com',
   'piston-data.mojang.com',
@@ -44,8 +51,8 @@ export async function officialFetch(url: string, signal?: AbortSignal): Promise<
   }
   throw new Error('Слишком много перенаправлений');
 }
-export async function officialJson<T = any>(url: string): Promise<T> {
-  const r = await officialFetch(url);
+export async function officialJson<T = any>(url: string, signal?: AbortSignal): Promise<T> {
+  const r = await officialFetch(url, signal);
   const text = await r.text();
   if (text.length > 8 * 1024 ** 2) throw new Error('Метаданные слишком велики');
   return JSON.parse(text);

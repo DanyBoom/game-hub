@@ -5,6 +5,7 @@ import type { ServerRecord } from '../shared/contracts';
 import { download, officialJson, officialFetch } from './downloads';
 import { extractZip } from './archives';
 import { rejectLinks, inside, atomicWrite } from './security';
+import { extractTar } from './extra-games';
 type Manifest = {
   latest: { release: string };
   versions: { id: string; type: string; url: string }[];
@@ -47,11 +48,11 @@ export async function javaFor(
   await rejectLinks(dir);
   progress(`Поиск Java ${major}`);
   const list = await officialJson(
-    `https://api.adoptium.net/v3/assets/latest/${major}/hotspot?architecture=x64&image_type=jre&os=windows&vendor=eclipse`,
+    `https://api.adoptium.net/v3/assets/latest/${major}/hotspot?architecture=x64&image_type=jre&os=${process.platform === 'win32' ? 'windows' : 'linux'}&vendor=eclipse`,
   );
   const pack = list[0]?.binary?.package;
   if (!pack) throw new Error(`Не найдена Java ${major} для Windows x64`);
-  const archive = path.join(dir, 'runtime.zip');
+  const archive = path.join(dir, process.platform === 'win32' ? 'runtime.zip' : 'runtime.tar.gz');
   await download(pack.link, archive, {
     hash: pack.checksum,
     size: pack.size,
@@ -59,7 +60,8 @@ export async function javaFor(
     progress: (b, t) => progress(`Скачивание Java ${major}`, b, t),
   });
   const stage = path.join(dir, 'unpack-' + Date.now());
-  await extractZip(archive, stage);
+  if (process.platform === 'win32') await extractZip(archive, stage);
+  else await extractTar(archive, stage);
   const folders = await fs.readdir(stage, { withFileTypes: true });
   const base = folders.find((f) => f.isDirectory());
   if (!base) throw new Error('Некорректный архив Java');
@@ -74,7 +76,7 @@ export async function javaFor(
   await fs.rename(path.join(stage, base.name), installed);
   await fs.rm(stage, { recursive: true, force: true });
   await fs.rm(archive, { force: true });
-  const relative = path.join(base.name, 'bin', 'java.exe');
+  const relative = path.join(base.name, 'bin', process.platform === 'win32' ? 'java.exe' : 'java');
   await fs.access(inside(dir, relative));
   await atomicWrite(marker, relative);
   return inside(dir, relative);
@@ -187,6 +189,9 @@ export async function installMinecraft(
       'NUMBER_OF_PROCESSORS',
       'PROCESSOR_ARCHITECTURE',
       'OS',
+      'HOME',
+      'LANG',
+      'LC_ALL',
     ]);
     const installerEnv = Object.fromEntries(
       Object.entries(process.env).filter(([key]) => systemKeys.has(key.toUpperCase())),
@@ -211,7 +216,7 @@ export async function installMinecraft(
         ? 'libraries/net/minecraftforge/forge/'
         : 'libraries/net/neoforged/neoforge/') +
         coordinate +
-        '/win_args.txt',
+        (process.platform === 'win32' ? '/win_args.txt' : '/unix_args.txt'),
     );
     if (
       await fs

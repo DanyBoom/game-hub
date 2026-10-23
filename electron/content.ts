@@ -1,12 +1,14 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { dialog, type BrowserWindow } from 'electron';
+import type { BrowserWindow } from 'electron';
+import { dialog } from './platform';
 import type { ServerRecord, ContentKind, Content } from '../shared/contracts';
 import { inspectZip, extractZip, hashFile } from './archives';
 import { inside, rejectLinks } from './security';
 const isModded = (s: ServerRecord) => ['fabric', 'forge', 'neoforge'].includes(s.core);
 function contentFolder(s: ServerRecord, kind: ContentKind = 'auto') {
+  if (s.game === 'factorio') return 'mods';
   if (s.game === 'beammp') return kind === 'server' ? 'Resources/Server' : 'Resources/Client';
   if (s.game === 'minecraft')
     return kind === 'datapack' ? `${s.world}/datapacks` : isModded(s) ? 'mods' : 'plugins';
@@ -18,7 +20,24 @@ export async function listContent(s: ServerRecord): Promise<Content[]> {
     const root = inside(s.root, relative);
     await rejectLinks(s.root, root);
     for (const e of await fs.readdir(root, { withFileTypes: true }).catch(() => [])) {
-      if (e.isFile() || (s.game === 'assetto' && e.isDirectory()))
+      if (
+        e.isFile() &&
+        s.game === 'minecraft' &&
+        !(prefix === 'datapacks/' ? /\.zip(?:\.disabled)?$/i : /\.jar(?:\.disabled)?$/i).test(
+          e.name,
+        )
+      )
+        continue;
+      if (
+        e.isFile() &&
+        s.game === 'beammp' &&
+        !(prefix === 'server/' ? /\.lua(?:\.disabled)?$/i : /\.zip(?:\.disabled)?$/i).test(e.name)
+      )
+        continue;
+      if (
+        e.isFile() ||
+        ((s.game === 'assetto' || (s.game === 'beammp' && prefix === 'server/')) && e.isDirectory())
+      )
         files.push({
           name: prefix + e.name,
           bytes: e.isFile() ? (await fs.stat(inside(root, e.name))).size : 0,
@@ -37,6 +56,18 @@ export async function listContent(s: ServerRecord): Promise<Content[]> {
   } else if (s.game === 'beammp') {
     await collect('Resources/Client', '');
     await collect('Resources/Server', 'server/');
+    await collect('disabled/Resources/Server', 'server/');
+  } else if (s.game === 'factorio') {
+    await collect('mods', '');
+    const manifest = await fs
+      .readFile(inside(s.root, 'mods/mod-list.json'), 'utf8')
+      .then(JSON.parse)
+      .catch(() => ({ mods: [] }));
+    for (const item of files)
+      item.enabled =
+        manifest.mods.find((m: any) => m.name === item.name.replace(/_\d.*\.zip$/, ''))?.enabled !==
+        false;
+    return files.filter((f) => f.name.endsWith('.zip'));
   }
   return files;
 }
@@ -50,6 +81,10 @@ export async function importFiles(
   if (s.game === 'acc' || s.game === 'evo')
     throw new Error(
       'Этот официальный сервер не поддерживает установку пользовательских машин/трасс ZIP. Доступный контент берётся из данных игры; настройки и участники находятся во вкладке «Все параметры».',
+    );
+  if (['valheim', 'terraria'].includes(s.game))
+    throw new Error(
+      'Автоимпорт модов для этой игры пока не поддерживается. Vanilla Terraria не загружает tModLoader; Valheim требует отдельной установки загрузчика.',
     );
   if (sources.length > 30) throw new Error('За один раз можно импортировать до 30 файлов');
   const plans: {
@@ -85,6 +120,10 @@ export async function importFiles(
           throw new Error(name + ': нет levels/ или vehicles/ в корне ZIP');
         plans.push({ source, name, mode: 'file', folder: 'Resources/Client', entries });
       }
+    } else if (s.game === 'factorio') {
+      if (extension !== '.zip' || !entries.some((e) => /^[^/]+\/info\.json$/.test(e.name)))
+        throw new Error('Ожидается ZIP-мод Factorio с info.json');
+      plans.push({ source, name, mode: 'file', folder: 'mods', entries });
     } else if (s.game === 'assetto') {
       if (extension !== '.zip') throw new Error('Контент AC импортируется из ZIP');
       if (entries.some((e) => /\.(exe|dll|cmd|bat|ps1|com|msi)$/i.test(e.name)))
@@ -250,12 +289,39 @@ export async function importFiles(
   return { imported, maps, content: await listContent(s) };
 }
 export async function toggleFile(s: ServerRecord, name: string, backup: () => Promise<unknown>) {
+  if (s.game === 'factorio') {
+    const file = inside(s.root, 'mods/mod-list.json');
+    await rejectLinks(s.root, file);
+    await backup();
+    const data = await fs
+      .readFile(file, 'utf8')
+      .then(JSON.parse)
+      .catch(() => ({ mods: [{ name: 'base', enabled: true }] }));
+    const modName = name.replace(/_\d.*\.zip$/, '');
+    let item = data.mods.find((m: any) => m.name === modName);
+    if (!item) {
+      item = { name: modName, enabled: true };
+      data.mods.push(item);
+    }
+    item.enabled = !item.enabled;
+    await fs.writeFile(file, JSON.stringify(data, null, 2), { mode: 0o600 });
+    return listContent(s);
+  }
   let source: string, target: string;
   if (s.game === 'assetto') {
     if (!/^(cars|tracks)\/[a-zA-Z0-9_.-]+$/.test(name))
       throw new Error('Недопустимое имя контента AC');
     const active = inside(s.root, 'content/' + name),
       disabled = inside(s.root, 'disabled/content/' + name);
+    const enabled = await fs
+      .access(active)
+      .then(() => true)
+      .catch(() => false);
+    source = enabled ? active : disabled;
+    target = enabled ? disabled : active;
+  } else if (s.game === 'beammp' && name.startsWith('server/')) {
+    const active = inside(s.root, 'Resources/Server/' + name.slice(7)),
+      disabled = inside(s.root, 'disabled/Resources/Server/' + name.slice(7));
     const enabled = await fs
       .access(active)
       .then(() => true)

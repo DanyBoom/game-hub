@@ -6,7 +6,8 @@ import dgram from 'node:dgram';
 import crypto from 'node:crypto';
 import { fork, type ChildProcess } from 'node:child_process';
 import pidusage from 'pidusage';
-import { app, dialog, safeStorage, shell, type BrowserWindow } from 'electron';
+import type { BrowserWindow } from 'electron';
+import { app, dialog, safeStorage, shell } from './platform';
 import { Store } from './store';
 import { binaryName, configure, readConfig } from './adapters';
 import { atomicWrite, inside, redact, rejectLinks } from './security';
@@ -26,8 +27,11 @@ import {
 } from './racing';
 import { detectTool, copyTool, requestSteamInstall } from './steam';
 import { installMinecraft, minecraftLaunch, minecraftVersions } from './minecraft';
+import { download, officialJson } from './downloads';
 import type { ContentKind } from '../shared/contracts';
 import { listContent, importFiles, toggleFile } from './content';
+import { extraGames, installExtra, extraLaunch, runTool } from './extra-games';
+import { actualContentPath, contentDetails, saveContentConfig } from './content-settings';
 import {
   serverInput,
   type ServerRecord,
@@ -173,8 +177,15 @@ export class Manager {
     return {
       servers: [...this.servers.values()],
       stats: await this.stats(),
-      games,
+      games: games.map((g) =>
+        g.id === 'factorio' && process.platform === 'win32'
+          ? { ...g, support: 'planned' as const }
+          : process.platform !== 'win32' && racingGames.has(g.id)
+            ? { ...g, support: 'planned' as const }
+            : g,
+      ),
       version: app.getVersion(),
+      platform: process.platform,
     };
   }
   get(id: string) {
@@ -183,6 +194,7 @@ export class Manager {
     return s;
   }
   private stopped(s: ServerRecord) {
+    if (this.installs.has(s.id)) throw new Error('Дождитесь установки или отмените её');
     if (this.running.has(s.id))
       throw new Error('Сначала остановите сервер и дождитесь завершения.');
     if (s.lastError?.startsWith('После сбоя')) throw new Error(s.lastError);
@@ -200,6 +212,7 @@ export class Manager {
   }
   async create(input: ServerInput) {
     const { authKey, password, adminPassword, ...values } = serverInput.parse(input);
+    if (values.game === 'valheim') values.players = 10;
     if ([...this.servers.values()].some((s) => s.port === values.port))
       throw new Error('Этот порт уже назначен другому серверу GameHub');
     const id = crypto.randomUUID();
@@ -226,6 +239,7 @@ export class Manager {
     const s = this.get(id);
     this.stopped(s);
     const { authKey, password, adminPassword, ...values } = serverInput.parse(input);
+    if (values.game === 'valheim') values.players = 10;
     if (values.game !== s.game) throw new Error('Нельзя менять игру существующего сервера');
     if ([...this.servers.values()].some((v) => v.id !== id && v.port === values.port))
       throw new Error('Конфликт порта с другим сервером');
@@ -340,7 +354,7 @@ export class Manager {
         ? { password: raw.SERVER?.PASSWORD, adminPassword: raw.SERVER?.ADMIN_PASSWORD }
         : s.game === 'evo'
           ? { password: raw.driver_password, adminPassword: raw.admin_password }
-          : { password: raw.password, adminPassword: raw.adminPassword };
+          : { password: raw.game_password ?? raw.password, adminPassword: raw.adminPassword };
     for (const [key, value] of Object.entries(candidates))
       if (typeof value === 'string' && value !== '__GAMEHUB_KEEP_SECRET__') {
         if (!safeStorage.isEncryptionAvailable()) throw new Error('DPAPI недоступен');
@@ -430,10 +444,33 @@ export class Manager {
         });
         socket.bind(s.port, '0.0.0.0', () => socket.close(() => resolve(true)));
       });
+      if (s.game === 'valheim')
+        checks.push({
+          label: 'Пароль Valheim',
+          ok: ((await this.passwords(s)).password?.length ?? 0) >= 5,
+          detail: 'Нужно не менее 5 символов; порт и следующий UDP-порт должны быть доступны.',
+        });
       checks.push({
         label: `UDP ${s.port}`,
         ok: udp,
         detail: udp ? 'Свободен на момент проверки' : 'Занят или недоступен',
+      });
+    }
+    if (s.game === 'valheim') {
+      const next =
+        s.port < 65535 &&
+        (await new Promise<boolean>((resolve) => {
+          const socket = dgram.createSocket('udp4');
+          socket.once('error', () => {
+            socket.close();
+            resolve(false);
+          });
+          socket.bind(s.port + 1, '0.0.0.0', () => socket.close(() => resolve(true)));
+        }));
+      checks.push({
+        label: `UDP ${s.port + 1}`,
+        ok: !!next,
+        detail: next ? 'Свободен на момент проверки' : 'Следующий UDP-порт занят или вне диапазона',
       });
     }
     if (['assetto', 'evo'].includes(s.game)) {
@@ -455,6 +492,33 @@ export class Manager {
     }
     return checks;
   }
+  async freePort() {
+    for (let i = 0; i < 20; i++) {
+      const candidate = await new Promise<number>((resolve, reject) => {
+        const listener = net.createServer();
+        listener.once('error', reject);
+        listener.listen(0, '0.0.0.0', () => {
+          const port = (listener.address() as net.AddressInfo).port;
+          listener.close(() => resolve(port));
+        });
+      });
+      if (
+        candidate >= 65535 ||
+        [...this.servers.values()].some((s) => [s.port, s.port + 1, s.httpPort].includes(candidate))
+      )
+        continue;
+      const available = await new Promise<boolean>((resolve) => {
+        const socket = dgram.createSocket('udp4');
+        socket.once('error', () => {
+          socket.close();
+          resolve(false);
+        });
+        socket.bind(candidate, '0.0.0.0', () => socket.close(() => resolve(true)));
+      });
+      if (available) return candidate;
+    }
+    throw new Error('Не удалось подобрать свободный порт');
+  }
   async diagnose(id: string) {
     const s = this.get(id);
     await rejectLinks(s.root);
@@ -471,7 +535,7 @@ export class Manager {
         label: 'AuthKey',
         ok: !!(await this.secret(s)),
         detail: s.hasSecret
-          ? 'Ключ сохранён через Windows DPAPI'
+          ? 'Ключ сохранён в защищённом хранилище'
           : 'Получите ключ на keymaster.beammp.com',
       });
     if (s.game === 'minecraft') {
@@ -552,8 +616,12 @@ export class Manager {
       args = launch.args;
     }
     if (s.game === 'evo') args = await evoArguments(s);
-    if (racingGames.has(s.game)) {
-      args = [executable, ...args];
+    if (extraGames.has(s.game)) args = extraLaunch(s, passwords.password ?? '');
+    if (
+      process.platform === 'win32' &&
+      (racingGames.has(s.game) || ['valheim', 'terraria'].includes(s.game))
+    ) {
+      args = [...(s.game === 'terraria' ? ['--console-input'] : []), executable, ...args];
       executable = app.isPackaged
         ? path.join(process.resourcesPath, 'ConsoleHost.exe')
         : path.join(__dirname, 'ConsoleHost.exe');
@@ -564,7 +632,22 @@ export class Manager {
       env: {
         ...process.env,
         ELECTRON_RUN_AS_NODE: '1',
-        GAMEHUB_STOP: racingGames.has(s.game) ? 'native' : s.game === 'minecraft' ? 'stop' : 'exit',
+        HOME: s.root,
+        ...(s.game === 'valheim'
+          ? { SteamAppId: '892970', LD_LIBRARY_PATH: path.join(s.root, 'linux64') }
+          : {}),
+        GAMEHUB_STOP:
+          s.game === 'terraria' && process.platform === 'win32'
+            ? 'console-exit'
+            : racingGames.has(s.game) || s.game === 'valheim'
+              ? process.platform === 'win32'
+                ? 'native'
+                : 'signal'
+              : s.game === 'factorio'
+                ? 'signal'
+                : s.game === 'minecraft'
+                  ? 'stop'
+                  : 'exit',
       },
       stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
       windowsHide: true,
@@ -724,6 +807,49 @@ export class Manager {
   async install(id: string) {
     const s = this.get(id);
     this.stopped(s);
+    if (extraGames.has(s.game)) {
+      await this.backup(id);
+      const control = new AbortController();
+      this.installs.set(id, control);
+      try {
+        const existing =
+          s.game === 'valheim' && process.platform === 'win32'
+            ? await detectTool('valheim')
+            : undefined;
+        if (existing) {
+          s.installation = { phase: 'Копирование официального Valheim Server' };
+          await copyTool(existing, s.root);
+        } else
+          await installExtra(s, this.data, control.signal, (phase) => {
+            s.installation = { phase };
+          });
+        await configure(s, '', await this.passwords(s));
+        if (s.game === 'factorio') {
+          await fs.mkdir(inside(s.root, 'worlds'), { recursive: true });
+          const world = inside(s.root, `worlds/${s.world}.zip`);
+          if (
+            !(await fs
+              .access(world)
+              .then(() => true)
+              .catch(() => false))
+          )
+            await runTool(
+              inside(s.root, binaryName(s)),
+              ['--create', world, '--map-gen-settings', 'map-gen-settings.json'],
+              s,
+              control.signal,
+            );
+        }
+        await this.refreshInstalled(s);
+        await this.store.put(s);
+        return s;
+      } catch (error) {
+        s.installation = { phase: 'Ошибка установки', error: redact((error as Error).message) };
+        throw error;
+      } finally {
+        this.installs.delete(id);
+      }
+    }
     if (s.game === 'minecraft') {
       if (!s.eula)
         throw new Error(
@@ -775,66 +901,62 @@ export class Manager {
       await this.store.put(s);
       return s;
     }
-    const response = await fetch(
-      'https://api.github.com/repos/BeamMP/BeamMP-Server/releases/latest',
-      { headers: { 'User-Agent': 'GameHub/0.1' }, signal: AbortSignal.timeout(20000) },
-    );
-    if (!response.ok) throw new Error('GitHub не вернул официальный релиз');
-    const release = (await response.json()) as {
-      tag_name: string;
-      assets: { name: string; size: number; browser_download_url: string; digest?: string }[];
-    };
-    const asset = release.assets.find((a) => a.name.toLowerCase() === 'beammp-server.exe');
-    if (!asset)
-      throw new Error(
-        'В релизе нет ожидаемого Windows EXE. Импортируйте официальный файл вручную.',
-      );
-    const url = new URL(asset.browser_download_url);
-    if (
-      url.origin !== 'https://github.com' ||
-      !url.pathname.startsWith('/BeamMP/BeamMP-Server/releases/download/')
-    )
-      throw new Error('Недоверенный адрес релиза');
-    if (asset.size > 250 * 1024 ** 2) throw new Error('Неожиданно большой файл');
-    const confirm = await dialog.showMessageBox(this.window(), {
-      type: 'question',
-      buttons: ['Отмена', 'Скачать'],
-      defaultId: 0,
-      cancelId: 0,
-      message: `Скачать BeamMP ${release.tag_name}?`,
-      detail: `Официальный репозиторий BeamMP/BeamMP-Server, ${Math.ceil(asset.size / 1024 ** 2)} МБ. Исполняемый файл будет запущен только по кнопке «Запустить». ${asset.digest ? 'SHA-256 будет проверен.' : 'Релиз не содержит digest; криптографическая подлинность не подтверждена.'}`,
-    });
-    if (confirm.response !== 1) return;
     await this.backup(id);
-    const result = await fetch(asset.browser_download_url, { signal: AbortSignal.timeout(120000) });
-    if (!result.ok || !result.body) throw new Error('Не удалось скачать EXE');
-    const dest = inside(s.root, binaryName(s));
-    await rejectLinks(s.root, dest);
-    const tmp = dest + '.download';
-    const file = await fs.open(tmp, 'wx');
-    let bytes = 0;
-    const hash = crypto.createHash('sha256');
+    const control = new AbortController();
+    this.installs.set(id, control);
     try {
-      for await (const chunk of result.body as any) {
-        bytes += chunk.length;
-        if (bytes > 250 * 1024 ** 2 || bytes > asset.size)
-          throw new Error('Размер загрузки превышен');
-        hash.update(chunk);
-        await file.write(chunk);
+      s.installation = { phase: 'Поиск официального релиза BeamMP' };
+      const release = await officialJson<{
+        tag_name: string;
+        assets: { name: string; size: number; browser_download_url: string; digest?: string }[];
+      }>('https://api.github.com/repos/BeamMP/BeamMP-Server/releases/latest', control.signal);
+      let assetName = 'BeamMP-Server.exe';
+      if (process.platform !== 'win32') {
+        const osRelease = await fs.readFile('/etc/os-release', 'utf8');
+        const distro = /^ID="?(\w+)/m.exec(osRelease)?.[1],
+          version = /^VERSION_ID="?([\d.]+)/m.exec(osRelease)?.[1];
+        const prefix = `BeamMP-Server.${distro}.`,
+          suffix = '.x86_64';
+        // Vendor builds for an older supported release can run on newer glibc. Never cross distributions.
+        const candidates = release.assets.filter(
+          (a) =>
+            a.name.startsWith(prefix) &&
+            a.name.endsWith(suffix) &&
+            Number(a.name.slice(prefix.length, -suffix.length)) <= Number(version),
+        );
+        candidates.sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true }));
+        assetName = candidates[0]?.name ?? '';
       }
-      await file.close();
-      if (bytes !== asset.size) throw new Error('Файл загружен не полностью');
-      const digest = hash.digest('hex');
-      if (asset.digest && asset.digest !== `sha256:${digest}`)
-        throw new Error('SHA-256 не совпадает');
-      await fs.rename(tmp, dest);
+      const asset = release.assets.find((a) => a.name === assetName);
+      if (!asset) throw new Error('BeamMP не публикует подходящую сборку для этой ОС');
+      const url = new URL(asset.browser_download_url);
+      if (
+        url.origin !== 'https://github.com' ||
+        !url.pathname.startsWith('/BeamMP/BeamMP-Server/releases/download/')
+      )
+        throw new Error('Недоверенный адрес релиза');
+      if (asset.size > 250 * 1024 ** 2) throw new Error('Неожиданно большой файл');
+      const target = inside(s.root, binaryName(s));
+      await rejectLinks(s.root, target);
+      await download(asset.browser_download_url, target, {
+        signal: control.signal,
+        size: asset.size,
+        hash: asset.digest?.replace(/^sha256:/, ''),
+        progress: (bytes, total) => {
+          s.installation = { phase: 'Скачивание BeamMP', bytes, total };
+        },
+      });
+      if (process.platform !== 'win32') await fs.chmod(target, 0o700);
+      await configure(s, await this.secret(s));
+      await this.refreshInstalled(s);
+      s.installation = { phase: 'BeamMP установлен' };
+      this.log(id, `Установлен BeamMP ${release.tag_name}`);
     } catch (error) {
-      await file.close().catch(() => {});
-      await fs.rm(tmp, { force: true });
+      s.installation = { phase: 'Ошибка установки', error: redact((error as Error).message) };
       throw error;
+    } finally {
+      this.installs.delete(id);
     }
-    this.log(id, `Установлен BeamMP ${release.tag_name}`);
-    await this.refreshInstalled(s);
   }
   async content(id: string) {
     return listContent(this.get(id));
@@ -859,6 +981,44 @@ export class Manager {
     const s = this.get(id);
     this.stopped(s);
     return toggleFile(s, name, () => this.backup(id));
+  }
+  private async contentEntry(id: string, name: string) {
+    const s = this.get(id),
+      item = (await listContent(s)).find((f) => f.name === name);
+    if (!item) throw new Error('Контент не найден');
+    return { s, item, source: await actualContentPath(s, name, item.enabled) };
+  }
+  async contentDetails(id: string, name: string) {
+    const { s, source } = await this.contentEntry(id, name);
+    return contentDetails(s, name, source);
+  }
+  async saveContentConfig(id: string, name: string, file: string, text: string) {
+    const { s, source } = await this.contentEntry(id, name);
+    this.stopped(s);
+    await this.backup(id);
+    await saveContentConfig(s, name, source, file, text);
+    return this.contentDetails(id, name);
+  }
+  async setContentEnabled(id: string, names: string[], enabled: boolean) {
+    const s = this.get(id);
+    this.stopped(s);
+    for (const name of names) {
+      const item = (await listContent(s)).find((f) => f.name === name);
+      if (!item) throw new Error('Контент не найден');
+      if (item.enabled !== enabled) await this.toggleContent(id, name);
+    }
+    return listContent(s);
+  }
+  async removeContent(id: string, name: string) {
+    const { s, source } = await this.contentEntry(id, name);
+    this.stopped(s);
+    await this.backup(id);
+    await rejectLinks(s.root, source);
+    const quarantine = inside(s.root, 'quarantine/' + crypto.randomUUID());
+    await fs.mkdir(path.dirname(quarantine), { recursive: true });
+    await fs.rename(source, quarantine);
+    this.log(id, 'Контент перемещён в карантин: ' + name);
+    return listContent(s);
   }
   async importWorld(id: string) {
     return this.importContent(id, 'world');
@@ -961,7 +1121,7 @@ export class Manager {
         driver_password: (await this.passwords(s)).password ?? '',
         admin_password: (await this.passwords(s)).adminPassword ?? '',
       });
-    } else await configure(s, await this.secret(s));
+    } else await configure(s, await this.secret(s), await this.passwords(s));
     await this.store.put(s);
     await this.refreshInstalled(s);
   }

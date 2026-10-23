@@ -26,3 +26,9 @@
 - [Adoptium API](https://api.adoptium.net/).
 
 Протокол сжатых параметров EVO дополнительно сверен с первичным инженерным примером [evo-server-launcher](https://github.com/plrmntonio/evo-server-launcher), затем проверен на официальном EXE. Исходный код стороннего лаунчера в GameHub не включён.
+
+- Terraria Dedicated Server: https://terraria.org/api/get/dedicated-servers-names и официальный загрузчик terraria.org/api/download/pc-dedicated-server/.
+- Terraria console/config: https://terraria.wiki.gg/wiki/Server .
+- Valheim server guide: https://www.valheimgame.com/support/a-guide-to-dedicated-servers/ .
+- Factorio dedicated/headless: https://wiki.factorio.com/Multiplayer#Dedicated/Headless_server и официальный factorio.com/get-download/stable/headless/linux64. Конфигурация дополняется шаблоном установленной версии.
+- Node runtime: https://nodejs.org/dist/latest-v24.x/SHASUMS256.txt .

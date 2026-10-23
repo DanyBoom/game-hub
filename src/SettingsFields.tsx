@@ -151,8 +151,21 @@ export function ConfigFields({
           <Field label="Название сервера">
             <input value={v.name} maxLength={100} onChange={(e) => patch('name', e.target.value)} />
           </Field>
-          {number('players', 'Количество игроков', 1, 128)}
+          {game.id === 'valheim' ? (
+            <p>Vanilla Valheim: до 10 игроков. Изменение лимита требует модификаций сервера.</p>
+          ) : (
+            number('players', 'Количество игроков', 1, 128)
+          )}
           {number('port', 'Игровой порт', 1024, 65535)}
+          <button
+            type="button"
+            className="secondary small"
+            onClick={() =>
+              void window.gamehub?.call<number>('freePort').then((port) => patch('port', port))
+            }
+          >
+            Подобрать свободный порт
+          </button>
         </>
       )}
       {game.id === 'beammp' && (
@@ -167,7 +180,7 @@ export function ConfigFields({
           {number('maxCars', 'Машин на игрока', 1, 20)}
           <Field
             label="AuthKey"
-            hint="Хранится через Windows DPAPI. Пустое поле сохраняет прежний ключ."
+            hint="Хранится в защищённом хранилище GameHub. Пустое поле сохраняет прежний ключ."
           >
             <input
               type="password"
@@ -188,6 +201,78 @@ export function ConfigFields({
           {check('public', 'Публичный список серверов')}
           {check('beamGuests', 'Разрешить гостей')}
           {check('beamLogChat', 'Сохранять игровой чат в лог BeamMP')}
+        </>
+      )}
+      {['valheim', 'terraria', 'factorio'].includes(game.id) && (
+        <>
+          <Field label="Имя мира">
+            <input
+              value={v.world}
+              onChange={(e) => patch('world', e.target.value)}
+              pattern="[a-zA-Z0-9_-]+"
+            />
+          </Field>
+          <Field
+            label="Пароль сервера"
+            hint="Пустое поле сохраняет прежний пароль. Valheim: минимум 5 символов."
+          >
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={v.password ?? ''}
+              onChange={(e) => patch('password', e.target.value)}
+            />
+          </Field>
+          {game.id === 'valheim' ? (
+            <>
+              {check('crossplay', 'Crossplay через relay')}
+              {check('public', 'Показывать в списке серверов')}
+              <p className="full-width">
+                Миры сохраняются в отдельной папке экземпляра. Для Steam-соединений нужны игровой и
+                следующий UDP-порты. Crossplay подключается по коду или внешнему адресу.
+              </p>
+            </>
+          ) : (
+            <>
+              <Field label="Сид мира" hint="Применяется при создании нового мира.">
+                <input value={v.seed} onChange={(e) => patch('seed', e.target.value)} />
+              </Field>
+              {game.id === 'terraria' ? (
+                <>
+                  <Field label="Размер мира">
+                    <select
+                      value={v.worldSize}
+                      onChange={(e) => patch('worldSize', Number(e.target.value))}
+                    >
+                      <option value={1}>Маленький</option>
+                      <option value={2}>Средний</option>
+                      <option value={3}>Большой</option>
+                    </select>
+                  </Field>
+                  <Field label="Сложность мира">
+                    <select
+                      value={v.worldMode}
+                      onChange={(e) => patch('worldMode', Number(e.target.value))}
+                    >
+                      <option value={0}>Classic</option>
+                      <option value={1}>Expert</option>
+                      <option value={2}>Master</option>
+                      <option value={3}>Journey</option>
+                    </select>
+                  </Field>
+                  <p className="full-width">
+                    Это vanilla Terraria. tModLoader требует отдельной реализации; моды tModLoader
+                    сюда не устанавливаются.
+                  </p>
+                </>
+              ) : (
+                <>
+                  {check('autoPause', 'Пауза без игроков')}
+                  {number('autosaveMinutes', 'Автосохранение, мин', 1, 120)}
+                </>
+              )}
+            </>
+          )}
         </>
       )}
       {game.id === 'minecraft' && (

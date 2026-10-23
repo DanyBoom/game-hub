@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { Action, HubAPI, Reply } from '../shared/contracts';
 const actions: Action[] = [
+  'freePort',
   'gameOptions',
   'versions',
   'configDocuments',
@@ -21,6 +22,10 @@ const actions: Action[] = [
   'content',
   'importContent',
   'toggleContent',
+  'contentDetails',
+  'removeContent',
+  'setContentEnabled',
+  'saveContentConfig',
   'importWorld',
   'backups',
   'backup',

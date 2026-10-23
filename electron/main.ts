@@ -153,6 +153,9 @@ if (gotLock)
               case 'snapshot':
                 result = await manager.snapshot();
                 break;
+              case 'freePort':
+                result = await manager.freePort();
+                break;
               case 'create':
                 result = await manager.create(serverInput.parse(payload));
                 break;
@@ -241,6 +244,43 @@ if (gotLock)
                   .strict()
                   .parse(payload);
                 result = await manager.toggleContent(v.id, v.name);
+                break;
+              }
+              case 'contentDetails':
+              case 'removeContent': {
+                const v = z
+                  .object({ id: idSchema, name: z.string().min(1).max(200) })
+                  .strict()
+                  .parse(payload);
+                result =
+                  action === 'contentDetails'
+                    ? await manager.contentDetails(v.id, v.name)
+                    : await manager.removeContent(v.id, v.name);
+                break;
+              }
+              case 'setContentEnabled': {
+                const v = z
+                  .object({
+                    id: idSchema,
+                    names: z.array(z.string().min(1).max(200)).min(1).max(200),
+                    enabled: z.boolean(),
+                  })
+                  .strict()
+                  .parse(payload);
+                result = await manager.setContentEnabled(v.id, v.names, v.enabled);
+                break;
+              }
+              case 'saveContentConfig': {
+                const v = z
+                  .object({
+                    id: idSchema,
+                    name: z.string().max(200),
+                    file: z.string().max(300),
+                    text: z.string().max(256 * 1024),
+                  })
+                  .strict()
+                  .parse(payload);
+                result = await manager.saveContentConfig(v.id, v.name, v.file, v.text);
                 break;
               }
               case 'importWorld':

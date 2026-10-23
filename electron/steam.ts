@@ -2,11 +2,16 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { shell } from 'electron';
+import { shell } from './platform';
 import type { GameId } from '../shared/contracts';
 import { rejectLinks } from './security';
 const execute = promisify(execFile);
 export const steamTools = {
+  valheim: {
+    id: 896660,
+    folders: ['Valheim dedicated server', 'Valheim Dedicated Server'],
+    exe: 'valheim_server.exe',
+  },
   assetto: {
     id: 302550,
     folders: ['Assetto Corsa Dedicated Server', 'assettocorsa/server'],
@@ -28,6 +33,7 @@ export const steamTools = {
   },
 } as const;
 export async function steamLibraries(): Promise<string[]> {
+  if (process.platform !== 'win32') return [];
   let base = path.join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Steam');
   try {
     const { stdout } = await execute(

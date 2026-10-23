@@ -5,14 +5,19 @@ import type { ServerRecord } from '../shared/contracts';
 import { serverInput } from '../shared/contracts';
 import { atomicWrite, inside, rejectLinks } from './security';
 import { configureRacing, racingGames, parseIni, readJson } from './racing';
+import { extraGames, extraBinary, configureExtra } from './extra-games';
 export const binaryName = (s: ServerRecord) =>
-  ({
-    beammp: 'BeamMP-Server.exe',
-    minecraft: 'server.jar',
-    assetto: 'acServer.exe',
-    acc: 'accServer.exe',
-    evo: 'AssettoCorsaEVOServer.exe',
-  })[s.game];
+  extraGames.has(s.game)
+    ? extraBinary(s)
+    : (
+        {
+          beammp: process.platform === 'win32' ? 'BeamMP-Server.exe' : 'BeamMP-Server',
+          minecraft: 'server.jar',
+          assetto: 'acServer.exe',
+          acc: 'accServer.exe',
+          evo: 'AssettoCorsaEVOServer.exe',
+        } as Record<string, string>
+      )[s.game];
 export const configName = (s: ServerRecord) =>
   s.game === 'beammp' ? 'ServerConfig.toml' : 'server.properties';
 export function propertiesPatch(text: string, updates: Record<string, string>) {
@@ -68,6 +73,10 @@ export async function configure(
   );
   if (racingGames.has(s.game)) {
     await configureRacing(s, passwords);
+    return;
+  }
+  if (extraGames.has(s.game)) {
+    await configureExtra(s, passwords.password);
     return;
   }
   const file = inside(s.root, configName(s));
@@ -138,6 +147,7 @@ export async function readConfig(s: ServerRecord): Promise<Partial<ServerRecord>
       .filter((k) => !['authKey', 'password', 'adminPassword'].includes(k) && k in manifest)
       .map((k) => [k, manifest[k]]),
   );
+  if (extraGames.has(s.game)) return baseline;
   if (s.game === 'assetto') {
     const config = parseIni(await fs.readFile(inside(s.root, 'cfg/server_cfg.ini'), 'utf8'));
     const p = config.SERVER ?? {};

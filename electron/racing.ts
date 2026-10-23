@@ -406,6 +406,10 @@ export async function configurationFiles(s: ServerRecord) {
   if (s.game === 'assetto') return acFiles;
   if (s.game === 'acc') return accFiles;
   if (s.game === 'evo') return ['server_config.json', 'season_config.json'];
+  if (s.game === 'terraria') return ['serverconfig.txt'];
+  if (s.game === 'valheim') return ['adminlist.txt', 'bannedlist.txt', 'permittedlist.txt'];
+  if (s.game === 'factorio')
+    return ['server-settings.json', 'map-gen-settings.json', 'mods/mod-list.json'];
   return [];
 }
 export async function configDocuments(s: ServerRecord): Promise<ConfigDocument[]> {
@@ -422,7 +426,13 @@ export async function configDocuments(s: ServerRecord): Promise<ConfigDocument[]
       } else if (name.endsWith('.toml')) {
         format = 'json';
         data = TOML.parse(await fs.readFile(file, 'utf8'));
-      } else if (name === 'server.properties') {
+      } else if (s.game === 'valheim' && name.endsWith('.txt')) {
+        data = {
+          entries: (await fs.readFile(file, 'utf8'))
+            .split(/\r?\n/)
+            .filter((l) => l.trim() && !l.startsWith('//')),
+        };
+      } else if (name === 'server.properties' || name === 'serverconfig.txt') {
         format = 'properties';
         data = Object.fromEntries(
           (await fs.readFile(file, 'utf8'))
@@ -457,12 +467,29 @@ export async function saveConfigDocument(
     throw new Error('Недопустимый конфигурационный файл');
   const file = inside(s.root, name);
   await rejectLinks(s.root, file);
+  if (s.game === 'valheim' && name.endsWith('.txt')) {
+    const entries = value.entries;
+    if (
+      !Array.isArray(entries) ||
+      entries.length > 1000 ||
+      entries.some((v) => typeof v !== 'string' || /[\r\n\0]/.test(v) || v.length > 100)
+    )
+      throw new Error('Ожидается список Platform User ID');
+    await atomicWrite(file, entries.join('\n') + '\n');
+    return;
+  }
   const old = name.endsWith('.ini')
     ? parseIni(await fs.readFile(file, 'utf8'))
     : name.endsWith('.toml')
       ? TOML.parse(await fs.readFile(file, 'utf8'))
-      : name === 'server.properties'
-        ? {}
+      : name === 'server.properties' || name === 'serverconfig.txt'
+        ? Object.fromEntries(
+            (await fs.readFile(file, 'utf8'))
+              .split(/\r?\n/)
+              .map((l) => /^([^#!\s][^=]*)=(.*)$/.exec(l))
+              .filter(Boolean)
+              .map((m) => [m![1], m![2]]),
+          )
         : await readJson(file);
   const data = restoreMasked(value, Array.isArray(old) ? { entries: old } : old);
   if (name.endsWith('.ini')) {
@@ -476,7 +503,7 @@ export async function saveConfigDocument(
     }
     await atomicWrite(file, patchIni(await fs.readFile(file, 'utf8'), data));
   } else if (name.endsWith('.toml')) await atomicWrite(file, TOML.stringify(data));
-  else if (name === 'server.properties') {
+  else if (name === 'server.properties' || name === 'serverconfig.txt') {
     const pending = new Map(Object.entries(data));
     for (const [k, v] of pending)
       if (/[\r\n=:]/.test(k) || /[\r\n]/.test(String(v)))

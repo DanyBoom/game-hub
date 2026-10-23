@@ -1,6 +1,6 @@
 {
   "name": "game-hub",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Local Windows game server manager",
   "author": "GameHub contributors",
@@ -17,7 +17,9 @@
     "test": "node scripts/test.mjs",
     "check:privacy": "node scripts/privacy.mjs",
     "dist": "npm run build && electron-builder --win nsis portable",
-    "pack": "npm run build && electron-builder --win --dir"
+    "pack": "npm run build && electron-builder --win --dir",
+    "build:server": "tsc --noEmit && vite build --config vite.server.config.ts && node scripts/server-build.mjs",
+    "serve": "node dist-server/server.cjs"
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
@@ -25,7 +27,9 @@
     "pidusage": "^4.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "selfsigned": "^5.5.0",
     "sql.js": "^1.13.0",
+    "tar": "^7.5.22",
     "yauzl": "^3.2.0",
     "yazl": "^3.3.1",
     "zod": "^3.24.0"

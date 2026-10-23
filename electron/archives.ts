@@ -93,6 +93,19 @@ export async function hashFile(file: string) {
   return hash.digest('hex');
 }
 export async function zipFolder(root: string, target: string) {
+  const game = await fs
+    .readFile(path.join(root, 'gamehub-settings.json'), 'utf8')
+    .then(JSON.parse)
+    .then((v) => v.game)
+    .catch(() => '');
+  const excluded =
+    game === 'factorio'
+      ? /^(bin|data|doc|temp)(\/|$)/
+      : game === 'valheim'
+        ? /^(valheim_server_Data|linux64|MonoBleedingEdge|UnityPlayer)(\/|$)/
+        : game === 'terraria'
+          ? /^(Content|Libraries|DotNet|Windows|Linux|Mac)(\/|$)/
+          : /$a/;
   const zip = new yazl.ZipFile();
   const output = createWriteStream(target, { flags: 'wx' });
   const finished = pipeline(zip.outputStream, output);
@@ -105,6 +118,13 @@ export async function zipFolder(root: string, target: string) {
         const full = path.join(dir, entry.name);
         await rejectLinks(root, full);
         const relative = path.relative(root, full).replace(/\\/g, '/');
+        if (
+          excluded.test(relative) ||
+          /(?:^|\/)(BeamMP-Server|valheim_server\.x86_64|TerrariaServer(?:\.bin\.x86_64)?|lib[^/]+\.so(?:\.\d+)*)$/.test(
+            relative,
+          )
+        )
+          continue;
         if (entry.isDirectory()) {
           if (
             !/^(logs|log|cache|libraries|versions)(\/|$)/i.test(relative) &&
@@ -123,7 +143,11 @@ export async function zipFolder(root: string, target: string) {
             const general = data.General as Record<string, any>;
             if (general) general.AuthKey = '';
             zip.addBuffer(Buffer.from(TOML.stringify(data)), relative);
-          } else if (/^(cfg\/.*\.json|server_config\.json|season_config\.json)$/i.test(relative)) {
+          } else if (
+            /^(cfg\/.*\.json|server_config\.json|season_config\.json|server-settings\.json)$/i.test(
+              relative,
+            )
+          ) {
             const bytes = await fs.readFile(full);
             const utf16 = bytes[0] === 255 && bytes[1] === 254;
             const text = utf16
@@ -147,7 +171,7 @@ export async function zipFolder(root: string, target: string) {
                 : Buffer.from(clean),
               relative,
             );
-          } else if (relative === 'cfg/server_cfg.ini') {
+          } else if (relative === 'cfg/server_cfg.ini' || relative === 'serverconfig.txt') {
             zip.addBuffer(
               Buffer.from(
                 (await fs.readFile(full, 'utf8')).replace(

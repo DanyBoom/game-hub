@@ -4,6 +4,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 let server: ChildProcessWithoutNullStreams | undefined;
 let stopping = false;
+const usesHost = ['native', 'console-exit'].includes(process.env.GAMEHUB_STOP ?? '');
 const systemKeys = new Set([
   'PATH',
   'PATHEXT',
@@ -23,10 +24,19 @@ const systemKeys = new Set([
   'NUMBER_OF_PROCESSORS',
   'PROCESSOR_ARCHITECTURE',
   'OS',
+  'HOME',
+  'LANG',
+  'LC_ALL',
+  'LD_LIBRARY_PATH',
+  'STEAMAPPID',
 ]);
 function stop() {
   if (!server || stopping) return;
   stopping = true;
+  if (process.env.GAMEHUB_STOP === 'signal') {
+    server.kill('SIGINT');
+    return;
+  }
   server.stdin.write(
     `${process.env.GAMEHUB_STOP === 'native' ? '__GAMEHUB_STOP__' : process.env.GAMEHUB_STOP === 'stop' ? 'stop' : 'exit'}\n`,
   );
@@ -55,7 +65,7 @@ process.on(
         if (process.connected) process.send?.(msg);
       };
       server.once('spawn', () => {
-        if (process.env.GAMEHUB_STOP !== 'native') send({ type: 'pid', pid: server!.pid });
+        if (!usesHost) send({ type: 'pid', pid: server!.pid });
       });
       for (const [streamName, stream] of [
         ['out', server.stdout],
@@ -72,10 +82,7 @@ process.on(
               suppress = true;
             }
             if (part.endsWith('\n')) {
-              if (
-                process.env.GAMEHUB_STOP === 'native' &&
-                /^__GAMEHUB_PID__\d+\s*$/.test(pending)
-              ) {
+              if (usesHost && /^__GAMEHUB_PID__\d+\s*$/.test(pending)) {
                 send({ type: 'pid', pid: Number(pending.slice(15).trim()) });
                 pending = '';
                 suppress = false;

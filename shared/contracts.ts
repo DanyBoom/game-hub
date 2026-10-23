@@ -1,5 +1,15 @@
 import { z } from 'zod';
-export const gameId = z.enum(['beammp', 'minecraft', 'assetto', 'valheim', 'evo', 'acc', 'lmu']);
+export const gameId = z.enum([
+  'beammp',
+  'minecraft',
+  'assetto',
+  'valheim',
+  'terraria',
+  'factorio',
+  'evo',
+  'acc',
+  'lmu',
+]);
 export type GameId = z.infer<typeof gameId>;
 export const idSchema = z.string().uuid();
 const line = z
@@ -10,7 +20,16 @@ const line = z
   .refine((s) => !/[\r\n\x00]/.test(s), 'Недопустимые символы');
 export const serverInput = z
   .object({
-    game: z.enum(['beammp', 'minecraft', 'assetto', 'acc', 'evo']),
+    game: z.enum([
+      'beammp',
+      'minecraft',
+      'assetto',
+      'acc',
+      'evo',
+      'valheim',
+      'terraria',
+      'factorio',
+    ]),
     name: line,
     port: z.number().int().min(1024).max(65535),
     players: z.number().int().min(1).max(128),
@@ -159,6 +178,11 @@ export const serverInput = z
       .optional(),
     eula: z.boolean().default(false),
     favorite: z.boolean().default(false),
+    crossplay: z.boolean().default(false),
+    worldSize: z.number().int().min(1).max(3).default(2),
+    worldMode: z.number().int().min(0).max(3).default(0),
+    autoPause: z.boolean().default(true),
+    autosaveMinutes: z.number().int().min(1).max(120).default(10),
   })
   .strict();
 export type ServerInput = z.infer<typeof serverInput>;
@@ -178,6 +202,13 @@ export type ServerRecord = Omit<ServerInput, 'authKey' | 'password' | 'adminPass
 export type LogLine = { time: string; text: string; stream: 'out' | 'error' | 'system' };
 export type Backup = { id: string; createdAt: string; bytes: number; sha256: string };
 export type Content = { name: string; bytes: number; enabled: boolean };
+export type ContentDetails = {
+  name: string;
+  bytes: number;
+  sha256?: string;
+  modifiedAt: string;
+  configs: { name: string; text: string }[];
+};
 export type Stats = {
   totalMB: number;
   freeMB: number;
@@ -198,9 +229,16 @@ export type Game = {
   description: string;
   docs: string;
 };
-export type Snapshot = { servers: ServerRecord[]; stats: Stats; games: Game[]; version: string };
+export type Snapshot = {
+  servers: ServerRecord[];
+  stats: Stats;
+  games: Game[];
+  version: string;
+  platform?: string;
+};
 export type Reply<T> = { ok: true; data: T } | { ok: false; error: string };
 export type Action =
+  | 'freePort'
   | 'gameOptions'
   | 'versions'
   | 'configDocuments'
@@ -221,6 +259,10 @@ export type Action =
   | 'content'
   | 'importContent'
   | 'toggleContent'
+  | 'setContentEnabled'
+  | 'removeContent'
+  | 'contentDetails'
+  | 'saveContentConfig'
   | 'importWorld'
   | 'backups'
   | 'backup'

@@ -180,7 +180,10 @@ function App() {
           <div className="local-card">
             <span className="live-dot" />
             <div>
-              Всё на вашем компьютере<small>Без аккаунтов и облака</small>
+              {location.protocol === 'https:' ? 'Всё на вашем сервере' : 'Всё на вашем компьютере'}
+              <small>
+                {location.protocol === 'https:' ? 'Ваша личная панель' : 'Без аккаунтов и облака'}
+              </small>
             </div>
             <ShieldCheck size={17} />
           </div>
@@ -247,8 +250,10 @@ function App() {
             </strong>
           </div>
           <div className="top-right">
-            <span className="windows-mark">⊞</span> Windows 11 <i /> <ShieldCheck size={15} />{' '}
-            Локальный режим
+            <span className="windows-mark">⊞</span>{' '}
+            {snapshot?.platform === 'linux' ? 'Linux Server' : 'Windows'} <i />{' '}
+            <ShieldCheck size={15} />{' '}
+            {location.protocol === 'https:' ? 'Серверная панель' : 'Локальный режим'}
           </div>
         </header>
         <div className="workspace">
@@ -318,7 +323,7 @@ function App() {
                       <p>
                         Одна библиотека для ваших игровых миров.
                         <br />
-                        Начните с BeamMP или Minecraft Java.
+                        Выберите игру и установите сервер одной кнопкой.
                       </p>
                       <button className="primary" onClick={() => navigate('library')}>
                         Выбрать игру <ArrowRight size={16} />
@@ -472,9 +477,9 @@ function App() {
                   <div className="notice">
                     <Activity size={17} />
                     <span>
-                      BeamMP, Minecraft Java, AC, ACC и EVO настраиваются здесь. Серверное ПО
-                      устанавливается отдельно по официальным лицензиям, настройки остаются в
-                      GameHub.
+                      BeamMP, Minecraft, Terraria, Valheim, AC, ACC и EVO настраиваются здесь.
+                      Серверное ПО устанавливается отдельно по официальным лицензиям, настройки
+                      остаются в GameHub.
                     </span>
                   </div>
                   <div className="game-grid">
@@ -633,8 +638,8 @@ function App() {
                     <h2>Личные данные</h2>
                     <p>
                       Локальная SQLite и резервные копии находятся в данных приложения Windows.
-                      AuthKey хранится через DPAPI; BeamMP требует открытый ключ в своём TOML на
-                      диске.
+                      AuthKey хранится в защищённом хранилище; BeamMP требует открытый ключ в своём
+                      TOML на диске.
                     </p>
                     <p>
                       Не публикуйте папки серверов, резервные копии и скриншоты с адресами.
@@ -659,7 +664,7 @@ function App() {
                   <div className="panel">
                     <Gamepad2 className="violet" />
                     <h2>О проекте</h2>
-                    <p>GameHub {snapshot.version} · ранняя версия для Windows 11.</p>
+                    <p>GameHub {snapshot.version} · ранняя версия.</p>
                     <p>
                       Проект «навайбкожен»: создан при значительной помощи ИИ. Это не гарантия
                       безопасности или полной игровой совместимости. Проверяйте изменения и храните
@@ -862,12 +867,18 @@ function Wizard({
       game: game.id,
       name: `Мой ${game.title}`,
       port: (
-        { beammp: 30814, minecraft: 25565, assetto: 9600, acc: 9231, evo: 9700 } as Record<
-          string,
-          number
-        >
+        {
+          beammp: 30814,
+          minecraft: 25565,
+          assetto: 9600,
+          acc: 9231,
+          evo: 9700,
+          valheim: 2456,
+          terraria: 7777,
+          factorio: 34197,
+        } as Record<string, number>
       )[game.id],
-      players: game.id === 'beammp' ? 8 : 12,
+      players: game.id === 'valheim' ? 10 : game.id === 'beammp' ? 8 : 12,
     }),
   );
   const steps = ['Установка', 'Основное', 'Игра', 'Контент', 'Подключение', 'Готово'];
@@ -919,14 +930,20 @@ function Wizard({
                       ? 'Официальный BeamMP Server'
                       : game.id === 'minecraft'
                         ? 'Ядро Minecraft + подходящая Java'
-                        : 'Официальный сервер Steam Tools'}
+                        : ['terraria', 'factorio'].includes(game.id)
+                          ? 'Автоматическая загрузка официального сервера'
+                          : game.id === 'valheim'
+                            ? 'Автоматическая установка через SteamCMD'
+                            : 'Официальный сервер Steam Tools'}
                   </strong>
                   <p>
                     {game.id === 'beammp'
-                      ? 'После создания нажмите «Установить». Приложение предложит скачать EXE из официального GitHub BeamMP с подтверждением размера.'
+                      ? 'После создания нажмите «Установить». GameHub сам скачает подходящий официальный релиз BeamMP, проверит загрузку и подготовит папки. Выбор файлов не нужен.'
                       : game.id === 'minecraft'
                         ? 'После создания нажмите «Установить ядро + Java». GameHub скачает выбранную версию из официального источника и подготовит runtime.'
-                        : 'GameHub обнаружит установленный Steam Tool и скопирует его в отдельную папку экземпляра. Если его нет — откроет официальную установку Steam. Настройки редактируются внутри GameHub.'}
+                        : ['terraria', 'valheim', 'factorio'].includes(game.id)
+                          ? 'После создания нажмите «Установить». GameHub загрузит официальный сервер и подготовит отдельный мир. Для Valheim SteamCMD скачивается автоматически, вход в Steam не требуется.'
+                          : 'GameHub обнаружит установленный Steam Tool и скопирует его в отдельную папку экземпляра. Если его нет — откроет официальную установку Steam. Настройки редактируются внутри GameHub.'}
                   </p>
                 </div>
               </div>
@@ -952,6 +969,7 @@ function Wizard({
                     min={1}
                     max={128}
                     value={input.players}
+                    disabled={game.id === 'valheim'}
                     onChange={(e) => setInput({ ...input, players: Number(e.target.value) })}
                   />
                 </Field>
@@ -963,6 +981,16 @@ function Wizard({
                     value={input.port}
                     onChange={(e) => setInput({ ...input, port: Number(e.target.value) })}
                   />
+                  <button
+                    type="button"
+                    className="secondary small"
+                    onClick={async () => {
+                      const port = await run<number>('freePort');
+                      if (port) setInput({ ...input, port });
+                    }}
+                  >
+                    Подобрать свободный
+                  </button>
                 </Field>
               </div>
             </>
@@ -1274,7 +1302,9 @@ function Details({
                     ? 'Установить BeamMP'
                     : s.game === 'minecraft'
                       ? 'Установить ядро + Java'
-                      : 'Установить / обнаружить в Steam'}
+                      : ['terraria', 'valheim', 'factorio'].includes(s.game)
+                        ? 'Установить сервер автоматически'
+                        : 'Установить / обнаружить в Steam'}
                 </button>
                 {s.game === 'beammp' && (
                   <button
@@ -1430,8 +1460,8 @@ function Details({
           <p>
             Копии создаются после остановки сервера. Ядро сервера, EXE, DLL, официальные пакеты и
             кеши исключены; пользовательские моды JAR сохраняются. Из известных конфигураций секреты
-            очищаются и восстанавливаются из DPAPI. Копии могут содержать данные игроков и пароли из
-            пользовательских файлов.
+            очищаются и восстанавливаются из защищённого хранилища. Копии могут содержать данные
+            игроков и пароли из пользовательских файлов.
           </p>
           {backups.length ? (
             <div className="file-list">
