@@ -6,7 +6,7 @@ export function configurePlatform(data: string, secret: Buffer) {
   root = data;
   key = secret;
 }
-export const app = { isPackaged: false, getVersion: () => '0.3.0', getPath: () => root };
+export const app = { isPackaged: false, getVersion: () => '0.4.0', getPath: () => root };
 export const safeStorage = {
   isEncryptionAvailable: () => !!key,
   encryptString(value: string) {

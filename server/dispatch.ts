@@ -6,6 +6,22 @@ const named = z.object({ id: idSchema, name: z.string().min(1).max(200) }).stric
 export async function dispatch(manager: Manager, action: string, payload: unknown) {
   const id = () => idSchema.parse(payload);
   switch (action) {
+    case 'nightcoopInfo':
+      return manager.nightcoopInfo(id());
+    case 'nightcoopFile': {
+      const v = z
+        .object({
+          id: idSchema,
+          name: z.enum(['hub.cert', 'hub-list.bin', 'locations.txt']),
+          base64: z
+            .string()
+            .max(1400000)
+            .regex(/^[A-Za-z0-9+/=]+$/),
+        })
+        .strict()
+        .parse(payload);
+      return manager.nightcoopFile(v.id, v.name, v.base64);
+    }
     case 'freePort':
       return manager.freePort();
     case 'snapshot':

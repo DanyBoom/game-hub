@@ -156,6 +156,24 @@ if (gotLock)
               case 'freePort':
                 result = await manager.freePort();
                 break;
+              case 'nightcoopInfo':
+                result = await manager.nightcoopInfo(id());
+                break;
+              case 'nightcoopFile': {
+                const v = z
+                  .object({
+                    id: idSchema,
+                    name: z.enum(['hub.cert', 'hub-list.bin', 'locations.txt']),
+                    base64: z
+                      .string()
+                      .max(1400000)
+                      .regex(/^[A-Za-z0-9+/=]+$/),
+                  })
+                  .strict()
+                  .parse(payload);
+                result = await manager.nightcoopFile(v.id, v.name, v.base64);
+                break;
+              }
               case 'create':
                 result = await manager.create(serverInput.parse(payload));
                 break;

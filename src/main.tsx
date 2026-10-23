@@ -54,6 +54,7 @@ import './extended.css';
 import { ConfigFields } from './SettingsFields';
 import { ConfigEditor } from './ConfigEditor';
 import { ContentPanel } from './ContentPanel';
+import { NightcoopPanel } from './Nightcoop';
 import { PlayersPanel } from './PlayersPanel';
 declare global {
   interface Window {
@@ -876,9 +877,10 @@ function Wizard({
           valheim: 2456,
           terraria: 7777,
           factorio: 34197,
+          nightcoop: 47800,
         } as Record<string, number>
       )[game.id],
-      players: game.id === 'valheim' ? 10 : game.id === 'beammp' ? 8 : 12,
+      players: game.id === 'valheim' ? 10 : ['beammp', 'nightcoop'].includes(game.id) ? 8 : 12,
     }),
   );
   const steps = ['Установка', 'Основное', 'Игра', 'Контент', 'Подключение', 'Готово'];
@@ -926,24 +928,28 @@ function Wizard({
                 <ArrowDownToLine size={22} />
                 <div>
                   <strong>
-                    {game.id === 'beammp'
-                      ? 'Официальный BeamMP Server'
-                      : game.id === 'minecraft'
-                        ? 'Ядро Minecraft + подходящая Java'
-                        : ['terraria', 'factorio'].includes(game.id)
-                          ? 'Автоматическая загрузка официального сервера'
-                          : game.id === 'valheim'
-                            ? 'Автоматическая установка через SteamCMD'
-                            : 'Официальный сервер Steam Tools'}
+                    {game.id === 'nightcoop'
+                      ? 'Автоматическая сборка NightCoop Hub для Linux VPS'
+                      : game.id === 'beammp'
+                        ? 'Официальный BeamMP Server'
+                        : game.id === 'minecraft'
+                          ? 'Ядро Minecraft + подходящая Java'
+                          : ['terraria', 'factorio'].includes(game.id)
+                            ? 'Автоматическая загрузка официального сервера'
+                            : game.id === 'valheim'
+                              ? 'Автоматическая установка через SteamCMD'
+                              : 'Официальный сервер Steam Tools'}
                   </strong>
                   <p>
-                    {game.id === 'beammp'
-                      ? 'После создания нажмите «Установить». GameHub сам скачает подходящий официальный релиз BeamMP, проверит загрузку и подготовит папки. Выбор файлов не нужен.'
-                      : game.id === 'minecraft'
-                        ? 'После создания нажмите «Установить ядро + Java». GameHub скачает выбранную версию из официального источника и подготовит runtime.'
-                        : ['terraria', 'valheim', 'factorio'].includes(game.id)
-                          ? 'После создания нажмите «Установить». GameHub загрузит официальный сервер и подготовит отдельный мир. Для Valheim SteamCMD скачивается автоматически, вход в Steam не требуется.'
-                          : 'GameHub обнаружит установленный Steam Tool и скопирует его в отдельную папку экземпляра. Если его нет — откроет официальную установку Steam. Настройки редактируются внутри GameHub.'}
+                    {game.id === 'nightcoop'
+                      ? 'GameHub загрузит закреплённые исходники NightCoop и ENet, соберёт хаб и создаст ключ. Нужны Ubuntu 24.04+ / Debian 13+ и g++ 13+. Серверный установщик ставит компилятор автоматически.'
+                      : game.id === 'beammp'
+                        ? 'После создания нажмите «Установить». GameHub сам скачает подходящий официальный релиз BeamMP, проверит загрузку и подготовит папки. Выбор файлов не нужен.'
+                        : game.id === 'minecraft'
+                          ? 'После создания нажмите «Установить ядро + Java». GameHub скачает выбранную версию из официального источника и подготовит runtime.'
+                          : ['terraria', 'valheim', 'factorio'].includes(game.id)
+                            ? 'После создания нажмите «Установить». GameHub загрузит официальный сервер и подготовит отдельный мир. Для Valheim SteamCMD скачивается автоматически, вход в Steam не требуется.'
+                            : 'GameHub обнаружит установленный Steam Tool и скопирует его в отдельную папку экземпляра. Если его нет — откроет официальную установку Steam. Настройки редактируются внутри GameHub.'}
                   </p>
                 </div>
               </div>
@@ -969,7 +975,7 @@ function Wizard({
                     min={1}
                     max={128}
                     value={input.players}
-                    disabled={game.id === 'valheim'}
+                    disabled={['valheim', 'nightcoop'].includes(game.id)}
                     onChange={(e) => setInput({ ...input, players: Number(e.target.value) })}
                   />
                 </Field>
@@ -1219,6 +1225,7 @@ function Details({
           ['diagnostics', 'Диагностика'],
           ['advanced', 'Все параметры'],
           ...(s.game === 'minecraft' ? [['players', 'Игроки']] : []),
+          ...(s.game === 'nightcoop' ? [['nightcoop', 'NightCoop']] : []),
         ].map(([id, title]) => (
           <button key={id} className={tab === id ? 'selected' : ''} onClick={() => setTab(id)}>
             {title}
@@ -1239,7 +1246,7 @@ function Details({
               icon={Cpu}
               label="CPU процесса"
               value={s.cpu === undefined ? '—' : s.cpu + '%'}
-              note="По данным Windows"
+              note="По данным системы"
             />
             <Metric
               icon={MemoryStick}
@@ -1251,7 +1258,13 @@ function Details({
               icon={Network}
               label="Игровой порт"
               value={String(s.port)}
-              note={s.game !== 'minecraft' ? 'TCP + UDP' : 'TCP'}
+              note={
+                s.game === 'nightcoop'
+                  ? 'UDP · все порты во вкладке NightCoop'
+                  : s.game !== 'minecraft'
+                    ? 'TCP + UDP'
+                    : 'TCP'
+              }
             />
           </div>
           <div className="settings-grid">
@@ -1282,11 +1295,13 @@ function Details({
               <ol>
                 <li>Установите или импортируйте серверное ПО.</li>
                 <li>
-                  {s.game === 'beammp'
-                    ? 'Заполните AuthKey в настройках.'
-                    : s.game === 'minecraft'
-                      ? 'Выберите версию ядра, примите EULA и нажмите «Установить».'
-                      : 'Выберите трассу, машины и сессии в настройках.'}
+                  {s.game === 'nightcoop'
+                    ? 'Укажите внешний адрес VPS и откройте UDP-порты из вкладки NightCoop.'
+                    : s.game === 'beammp'
+                      ? 'Заполните AuthKey в настройках.'
+                      : s.game === 'minecraft'
+                        ? 'Выберите версию ядра, примите EULA и нажмите «Установить».'
+                        : 'Выберите трассу, машины и сессии в настройках.'}
                 </li>
                 <li>Запустите диагностику и исправьте предупреждения.</li>
                 <li>Запустите сервер. Проверьте готовность в его консоли.</li>
@@ -1298,13 +1313,15 @@ function Details({
                   onClick={() => void mutate('install')}
                 >
                   <ArrowDownToLine size={16} />
-                  {s.game === 'beammp'
-                    ? 'Установить BeamMP'
-                    : s.game === 'minecraft'
-                      ? 'Установить ядро + Java'
-                      : ['terraria', 'valheim', 'factorio'].includes(s.game)
-                        ? 'Установить сервер автоматически'
-                        : 'Установить / обнаружить в Steam'}
+                  {s.game === 'nightcoop'
+                    ? 'Установить NightCoop автоматически'
+                    : s.game === 'beammp'
+                      ? 'Установить BeamMP'
+                      : s.game === 'minecraft'
+                        ? 'Установить ядро + Java'
+                        : ['terraria', 'valheim', 'factorio'].includes(s.game)
+                          ? 'Установить сервер автоматически'
+                          : 'Установить / обнаружить в Steam'}
                 </button>
                 {s.game === 'beammp' && (
                   <button
@@ -1353,6 +1370,7 @@ function Details({
         />
       )}
       {tab === 'players' && <PlayersPanel server={s} busy={busy} run={run} />}
+      {tab === 'nightcoop' && <NightcoopPanel server={s} notify={notify} />}
       {tab === 'settings' && (
         <div className="panel">
           <div className="section-heading">
@@ -1492,7 +1510,8 @@ function Details({
           </small>
         </div>
       )}
-      {tab === 'network' && (
+      {tab === 'network' && s.game === 'nightcoop' && <NightcoopPanel server={s} notify={notify} />}
+      {tab === 'network' && s.game !== 'nightcoop' && (
         <div className="settings-grid">
           <div className="panel">
             <Network className="violet" />
@@ -1525,7 +1544,7 @@ function Details({
             <Globe className="violet" />
             <h2>Пригласить друзей</h2>
             <ol>
-              <li>Разрешите сервер в Windows Firewall для нужного сетевого профиля.</li>
+              <li>Разрешите игровые порты в firewall компьютера или VPS.</li>
               <li>
                 Для интернета настройте проброс {s.game === 'beammp' ? 'TCP и UDP' : 'TCP'} порта{' '}
                 {s.port} на маршрутизаторе.
@@ -1537,8 +1556,8 @@ function Details({
               </li>
             </ol>
             <p>
-              Панель GameHub не открывает HTTP-порт. Автоматическая настройка Firewall в этой версии
-              недоступна.
+              Веб-панель использует собственный HTTPS-порт, отдельный от игровых портов.
+              Автоматическая настройка Firewall недоступна.
             </p>
           </div>
         </div>

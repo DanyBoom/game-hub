@@ -89,7 +89,7 @@ const assert = require('node:assert/strict'),
     const available = await call('freePort');
     assert.ok(Number.isInteger(available) && available >= 1024 && available <= 65535);
     const snapshot = await call('snapshot');
-    assert.equal(snapshot.version, '0.3.0');
+    assert.equal(snapshot.version, '0.4.0');
     assert.ok(snapshot.games.some((g) => g.id === 'terraria'));
     const s = await call('create', {
       game: 'beammp',
@@ -118,6 +118,9 @@ const assert = require('node:assert/strict'),
           password: 'fixture-only-password',
           world: 'fixture',
           worldSize: 1,
+          ...(game === 'nightcoop'
+            ? { nightcoop: { shards: 3, address: 'localhost', statsSeconds: 1 } }
+            : {}),
         });
         console.log(game + ': install requested');
         await call('install', server.id);
@@ -129,7 +132,7 @@ const assert = require('node:assert/strict'),
           const logs = await call('logs', server.id);
           if (
             logs.some((l) =>
-              /Server started|Hosting game|Creating game|Game server connected|Listening on port/.test(
+              /Server started|Hosting game|Creating game|Game server connected|Listening on port|NightCoop hub on port/.test(
                 l.text,
               ),
             )
@@ -151,6 +154,43 @@ const assert = require('node:assert/strict'),
         }
         assert.ok(ready, game + ' readiness');
         await call('stop', server.id);
+        if (game === 'nightcoop') {
+          const info = await call('nightcoopInfo', server.id);
+          assert.match(info.fingerprint, /^[A-Z0-9]{4}(?:-[A-Z0-9]{4}){3}$/);
+          assert.deepEqual(info.ports, [server.port, server.port + 10, server.port + 11]);
+          const keyFile = path.join(server.root, 'hub-sign.key');
+          const key = await fs.readFile(keyFile, 'utf8');
+          assert.equal((await fs.stat(keyFile)).mode & 0o777, 0o600);
+          assert.ok(!JSON.stringify(info).includes(key.trim()));
+          assert.ok(
+            !(await fs.readFile(path.join(data, 'gamehub.sqlite'))).includes(
+              Buffer.from(key.trim()),
+            ),
+          );
+          const locations = Buffer.from(
+            'serial 1\n- open home localhost#' + info.fingerprint + ' Fixture\n',
+          ).toString('base64');
+          await call('nightcoopFile', { id: server.id, name: 'locations.txt', base64: locations });
+          await assert.rejects(
+            call('nightcoopFile', {
+              id: server.id,
+              name: 'hub.cert',
+              base64: Buffer.from('invalid').toString('base64'),
+            }),
+          );
+          const backup = await call('backup', server.id);
+          await call('restore', { id: server.id, backupId: backup.id });
+          // Binary is intentionally excluded, while the protected profile restores the same identity.
+          assert.equal(await fs.readFile(keyFile, 'utf8'), key);
+          await call('install', server.id);
+          assert.equal((await call('nightcoopInfo', server.id)).fingerprint, info.fingerprint);
+          await call('start', server.id);
+          await new Promise((r) => setTimeout(r, 1500));
+          await call('stop', server.id);
+          console.log(
+            'nightcoop: public identity, private key, upload validation and restore verified',
+          );
+        }
         console.log(game + ': start and saving stop completed');
       }
     }

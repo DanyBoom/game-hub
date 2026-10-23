@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { Action, HubAPI, Reply } from '../shared/contracts';
 const actions: Action[] = [
+  'nightcoopInfo',
+  'nightcoopFile',
   'freePort',
   'gameOptions',
   'versions',

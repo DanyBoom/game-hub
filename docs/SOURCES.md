@@ -32,3 +32,9 @@
 - Valheim server guide: https://www.valheimgame.com/support/a-guide-to-dedicated-servers/ .
 - Factorio dedicated/headless: https://wiki.factorio.com/Multiplayer#Dedicated/Headless_server и официальный factorio.com/get-download/stable/headless/linux64. Конфигурация дополняется шаблоном установленной версии.
 - Node runtime: https://nodejs.org/dist/latest-v24.x/SHASUMS256.txt .
+
+## NightCoop Hub
+
+- [Официальный репозиторий](https://github.com/Twenfys/nightcoop-hub), [инструкция Linux/Docker на русском](https://github.com/Twenfys/nightcoop-hub/blob/6b694a6c86fd7c2b93743497ab3bd924553f25b8/tools/hub/docker/README.ru.md).
+- Закреплённые исходники: `6b694a6c86fd7c2b93743497ab3bd924553f25b8`; ENet `5a9c537fd464b3c6d3c55e1d3bd47588faf71b42`. Команды и диапазоны сверены с `tools/hub/main.cpp`, формула UDP-портов — с `src/HubRules.hpp`.
+- GameHub не включает исходники или бинарник NightCoop в свой выпуск: они загружаются на ваш сервер при явной установке. Клиентский мод устанавливается отдельно.

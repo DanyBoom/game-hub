@@ -1,6 +1,18 @@
 import type { Game } from './contracts';
 export const games: Game[] = [
   {
+    id: 'nightcoop',
+    title: 'Cyberpunk 2077 Co-op',
+    subtitle: 'NightCoop Hub · Linux VPS',
+    genre: 'Кооператив',
+    color: '#f0dc47',
+    mark: 'NC',
+    support: 'early',
+    description:
+      'Хаб сессий и relay для мода NightCoop. Автосборка в Linux, лимиты, потоки, UDP-порты и отпечаток ключа. Игра остаётся у хоста.',
+    docs: 'https://github.com/Twenfys/nightcoop-hub/blob/main/tools/hub/docker/README.ru.md',
+  },
+  {
     id: 'beammp',
     title: 'BeamMP',
     subtitle: 'BeamNG.drive',

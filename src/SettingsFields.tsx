@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useState } from 'react';
 import type { Choice, Game, GameOptions, ServerInput } from '../shared/contracts';
 import { beamMaps } from '../shared/options';
+import { NightcoopFields } from './Nightcoop';
 const empty: GameOptions = {
   maps: beamMaps,
   tracks: [],
@@ -146,12 +147,17 @@ export function ConfigFields({
   const racing = ['assetto', 'acc', 'evo'].includes(game.id);
   return (
     <div className="form-grid">
+      {game.id === 'nightcoop' && (
+        <NightcoopFields value={v.nightcoop} set={(nightcoop) => set({ ...v, nightcoop })} />
+      )}
       {basics && (
         <>
           <Field label="Название сервера">
             <input value={v.name} maxLength={100} onChange={(e) => patch('name', e.target.value)} />
           </Field>
-          {game.id === 'valheim' ? (
+          {game.id === 'nightcoop' ? (
+            <p>До 8 игроков в игровой сессии NightCoop. Ёмкость хаба задаётся ниже.</p>
+          ) : game.id === 'valheim' ? (
             <p>Vanilla Valheim: до 10 игроков. Изменение лимита требует модификаций сервера.</p>
           ) : (
             number('players', 'Количество игроков', 1, 128)

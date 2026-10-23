@@ -31,6 +31,12 @@ import { download, officialJson } from './downloads';
 import type { ContentKind } from '../shared/contracts';
 import { listContent, importFiles, toggleFile } from './content';
 import { extraGames, installExtra, extraLaunch, runTool } from './extra-games';
+import {
+  nightcoopPorts,
+  nightcoopInfo,
+  saveNightcoopPublic,
+  nightcoopPublicFiles,
+} from './nightcoop';
 import { actualContentPath, contentDetails, saveContentConfig } from './content-settings';
 import {
   serverInput,
@@ -178,7 +184,7 @@ export class Manager {
       servers: [...this.servers.values()],
       stats: await this.stats(),
       games: games.map((g) =>
-        g.id === 'factorio' && process.platform === 'win32'
+        ['factorio', 'nightcoop'].includes(g.id) && process.platform === 'win32'
           ? { ...g, support: 'planned' as const }
           : process.platform !== 'win32' && racingGames.has(g.id)
             ? { ...g, support: 'planned' as const }
@@ -213,7 +219,13 @@ export class Manager {
   async create(input: ServerInput) {
     const { authKey, password, adminPassword, ...values } = serverInput.parse(input);
     if (values.game === 'valheim') values.players = 10;
-    if ([...this.servers.values()].some((s) => s.port === values.port))
+    if (values.game === 'nightcoop') values.players = 8;
+    const reserved = values.game === 'nightcoop' ? nightcoopPorts(values) : [values.port];
+    if (
+      [...this.servers.values()].some((s) =>
+        (s.game === 'nightcoop' ? nightcoopPorts(s) : [s.port]).some((p) => reserved.includes(p)),
+      )
+    )
       throw new Error('Этот порт уже назначен другому серверу GameHub');
     const id = crypto.randomUUID();
     const root = path.join((await this.stats()).root, id);
@@ -241,7 +253,15 @@ export class Manager {
     const { authKey, password, adminPassword, ...values } = serverInput.parse(input);
     if (values.game === 'valheim') values.players = 10;
     if (values.game !== s.game) throw new Error('Нельзя менять игру существующего сервера');
-    if ([...this.servers.values()].some((v) => v.id !== id && v.port === values.port))
+    if (values.game === 'nightcoop') values.players = 8;
+    const reserved = values.game === 'nightcoop' ? nightcoopPorts(values) : [values.port];
+    if (
+      [...this.servers.values()].some(
+        (v) =>
+          v.id !== id &&
+          (v.game === 'nightcoop' ? nightcoopPorts(v) : [v.port]).some((p) => reserved.includes(p)),
+      )
+    )
       throw new Error('Конфликт порта с другим сервером');
     await this.backup(id);
     if (authKey) await this.saveSecret(s, authKey);
@@ -333,6 +353,18 @@ export class Manager {
       await saveConfigDocument(s, name, data);
       changed = await readConfig(s);
       const candidate = { ...s, ...changed, game: s.game };
+      const reserved =
+        candidate.game === 'nightcoop' ? nightcoopPorts(candidate) : [candidate.port];
+      if (
+        [...this.servers.values()].some(
+          (v) =>
+            v.id !== id &&
+            (v.game === 'nightcoop' ? nightcoopPorts(v) : [v.port]).some((p) =>
+              reserved.includes(p),
+            ),
+        )
+      )
+        throw new Error('Конфликт порта с другим сервером');
       serverInput.parse(
         Object.fromEntries(
           Object.keys(serverInput.shape).map((key) => [key, (candidate as any)[key]]),
@@ -419,6 +451,24 @@ export class Manager {
     return this.logs.get(id) ?? [];
   }
   async ports(s: ServerRecord): Promise<Check[]> {
+    if (s.game === 'nightcoop')
+      return Promise.all(
+        nightcoopPorts(s).map(async (port) => {
+          const free = await new Promise<boolean>((resolve) => {
+            const socket = dgram.createSocket('udp4');
+            socket.once('error', () => {
+              socket.close();
+              resolve(false);
+            });
+            socket.bind(port, '0.0.0.0', () => socket.close(() => resolve(true)));
+          });
+          return {
+            label: `NightCoop UDP ${port}`,
+            ok: free,
+            detail: free ? 'Свободен на момент проверки' : 'Занят или недоступен',
+          };
+        }),
+      );
     const tcp = await new Promise<boolean>((resolve) => {
       const socket = net.createServer();
       socket.unref();
@@ -530,6 +580,35 @@ export class Manager {
         detail: s.installed ? binaryName(s) : 'Установите или импортируйте сервер',
       },
     ];
+    if (s.game === 'nightcoop') {
+      checks.push({
+        label: 'Linux',
+        ok: process.platform === 'linux',
+        detail: 'NightCoop Hub: Ubuntu 24.04+ / Debian 13+, g++ 13+',
+      });
+      checks.push({
+        label: 'Ключ хаба',
+        ok: await fs
+          .access(inside(s.root, 'hub-sign.key'))
+          .then(() => true)
+          .catch(() => false),
+        detail: 'Личный ключ хранится только в приватных данных; игрокам передаётся отпечаток.',
+      });
+      for (const [flag, file] of [
+        ['useHubCert', 'hub.cert'],
+        ['useHubList', 'hub-list.bin'],
+        ['useLocations', 'locations.txt'],
+      ] as const)
+        if (s.nightcoop[flag])
+          checks.push({
+            label: file,
+            ok: await fs
+              .access(inside(s.root, file))
+              .then(() => true)
+              .catch(() => false),
+            detail: 'Включённый публичный файл должен быть загружен во вкладке NightCoop.',
+          });
+    }
     if (s.game === 'beammp')
       checks.push({
         label: 'AuthKey',
@@ -643,7 +722,7 @@ export class Manager {
               ? process.platform === 'win32'
                 ? 'native'
                 : 'signal'
-              : s.game === 'factorio'
+              : ['factorio', 'nightcoop'].includes(s.game)
                 ? 'signal'
                 : s.game === 'minecraft'
                   ? 'stop'
@@ -738,6 +817,10 @@ export class Manager {
       throw new Error(
         'Команды администратора этой игры отправляются из игрового чата. Консоль GameHub показывает реальные логи.',
       );
+    if (s.game === 'nightcoop')
+      throw new Error(
+        'NightCoop управляется настройками и сигналом остановки; интерактивных команд stdin у него нет.',
+      );
     if (s.game === 'beammp' && /^lua\b/i.test(command))
       throw new Error(
         'Lua-режим через консоль GameHub отключён: он меняет обработку команды остановки.',
@@ -824,6 +907,7 @@ export class Manager {
             s.installation = { phase };
           });
         await configure(s, '', await this.passwords(s));
+        if (s.game === 'nightcoop') await this.rememberNightcoopKey(s);
         if (s.game === 'factorio') {
           await fs.mkdir(inside(s.root, 'worlds'), { recursive: true });
           const world = inside(s.root, `worlds/${s.world}.zip`);
@@ -1026,6 +1110,38 @@ export class Manager {
   private backupDir(id: string) {
     return path.join(this.data, 'backups', id);
   }
+  private async rememberNightcoopKey(s: ServerRecord) {
+    if (s.game !== 'nightcoop') return;
+    const file = inside(s.root, 'hub-sign.key');
+    await rejectLinks(s.root, file);
+    const key = await fs.readFile(file, 'utf8').catch(() => null);
+    if (!key) return;
+    if (key.length > 16384 || !safeStorage.isEncryptionAvailable())
+      throw new Error('Не удалось защитить ключ NightCoop');
+    await this.store.setting(
+      'nightcoop-key:' + s.id,
+      safeStorage.encryptString(key).toString('base64'),
+    );
+  }
+  async nightcoopInfo(id: string) {
+    const s = this.get(id);
+    if (s.game !== 'nightcoop') throw new Error('Нужен экземпляр NightCoop');
+    await this.refreshInstalled(s);
+    return nightcoopInfo(s);
+  }
+  async nightcoopFile(id: string, name: (typeof nightcoopPublicFiles)[number], base64: string) {
+    const s = this.get(id);
+    this.stopped(s);
+    if (s.game !== 'nightcoop') throw new Error('Нужен экземпляр NightCoop');
+    await this.backup(id);
+    await saveNightcoopPublic(s, name, base64);
+    const flag =
+      name === 'hub.cert' ? 'useHubCert' : name === 'hub-list.bin' ? 'useHubList' : 'useLocations';
+    s.nightcoop[flag] = true;
+    await configure(s, '');
+    await this.store.put(s);
+    return this.nightcoopInfo(id);
+  }
   async backups(id: string): Promise<Backup[]> {
     this.get(id);
     const dir = this.backupDir(id);
@@ -1040,6 +1156,7 @@ export class Manager {
   async backup(id: string) {
     const s = this.get(id);
     this.stopped(s);
+    await this.rememberNightcoopKey(s);
     const dir = this.backupDir(id);
     await fs.mkdir(dir, { recursive: true });
     const bid = crypto.randomUUID(),
@@ -1121,7 +1238,20 @@ export class Manager {
         driver_password: (await this.passwords(s)).password ?? '',
         admin_password: (await this.passwords(s)).adminPassword ?? '',
       });
-    } else await configure(s, await this.secret(s), await this.passwords(s));
+    } else {
+      if (s.game === 'nightcoop') {
+        const key = this.store.getSetting('nightcoop-key:' + s.id);
+        if (!key)
+          throw new Error(
+            'Не найден приватный ключ NightCoop. Восстановите приватную папку данных GameHub.',
+          );
+        await atomicWrite(
+          inside(s.root, 'hub-sign.key'),
+          safeStorage.decryptString(Buffer.from(key, 'base64')),
+        );
+      }
+      await configure(s, await this.secret(s), await this.passwords(s));
+    }
     await this.store.put(s);
     await this.refreshInstalled(s);
   }

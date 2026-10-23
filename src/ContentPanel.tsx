@@ -40,7 +40,7 @@ export function ContentPanel({
     return () => clearInterval(t);
   }, [s.id]);
   const running = s.status === 'running' || s.status === 'stopping';
-  const unsupported = ['acc', 'evo', 'valheim', 'terraria'].includes(s.game);
+  const unsupported = ['acc', 'evo', 'valheim', 'terraria', 'nightcoop'].includes(s.game);
   const visible = content.filter(
     (f) =>
       f.name.toLowerCase().includes(search.toLowerCase()) &&

@@ -6,8 +6,9 @@ import type { ServerRecord } from '../shared/contracts';
 import { download, officialJson } from './downloads';
 import { extractZip } from './archives';
 import { inside, rejectLinks, atomicWrite, redact } from './security';
+import { configureNightcoop, installNightcoop, nightcoopArgs } from './nightcoop';
 
-export const extraGames = new Set(['valheim', 'terraria', 'factorio']);
+export const extraGames = new Set(['valheim', 'terraria', 'factorio', 'nightcoop']);
 export async function extractTar(file: string, cwd: string) {
   await fs.mkdir(cwd, { recursive: true });
   let count = 0,
@@ -71,6 +72,7 @@ export async function runTool(
   });
 }
 export function extraBinary(s: ServerRecord) {
+  if (s.game === 'nightcoop') return 'nightcoop_hub';
   return s.game === 'terraria'
     ? process.platform === 'win32'
       ? 'TerrariaServer.exe'
@@ -82,6 +84,7 @@ export function extraBinary(s: ServerRecord) {
       : 'bin/x64/factorio';
 }
 export async function configureExtra(s: ServerRecord, password = '') {
+  if (s.game === 'nightcoop') return configureNightcoop(s);
   if (s.game === 'terraria') {
     await fs.mkdir(inside(s.root, 'worlds'), { recursive: true });
     await atomicWrite(
@@ -152,6 +155,7 @@ export async function installExtra(
   progress: (phase: string) => void,
 ) {
   progress('Загрузка официального сервера');
+  if (s.game === 'nightcoop') return installNightcoop(s, signal, progress);
   if (s.game === 'terraria') {
     const names = await officialJson<string[]>(
       'https://terraria.org/api/get/dedicated-servers-names',
@@ -266,6 +270,7 @@ export async function installExtra(
   progress('Установка завершена');
 }
 export function extraLaunch(s: ServerRecord, password: string) {
+  if (s.game === 'nightcoop') return nightcoopArgs(s);
   if (s.game === 'terraria') return ['-config', 'serverconfig.txt'];
   if (s.game === 'factorio')
     return [

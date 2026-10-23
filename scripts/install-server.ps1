@@ -12,11 +12,11 @@ $runtime=Join-Path $install 'node'
 if (Get-ScheduledTask -TaskName 'GameHubServer' -ErrorAction SilentlyContinue) { throw 'GameHubServer already exists. Stop the task and use the documented update procedure.' }
 New-Item -ItemType Directory -Force -Path $app,$data,$runtime | Out-Null
 if (-not (Test-Path -LiteralPath (Join-Path $source 'package.json'))) {
-  $base='https://github.com/DanyBoom/game-hub/releases/download/v0.3.0'
-  $bundle=Join-Path $runtime 'GameHub-Server-0.3.0.zip'
-  Invoke-WebRequest "$base/GameHub-Server-0.3.0.zip" -OutFile $bundle -UseBasicParsing
+  $base='https://github.com/DanyBoom/game-hub/releases/download/v0.4.0'
+  $bundle=Join-Path $runtime 'GameHub-Server-0.4.0.zip'
+  Invoke-WebRequest "$base/GameHub-Server-0.4.0.zip" -OutFile $bundle -UseBasicParsing
   $checks=(Invoke-WebRequest "$base/SHA256SUMS.txt" -UseBasicParsing).Content
-  $checksum=($checks -split "`n" | Where-Object { $_ -match ' GameHub-Server-0.3.0.zip\s*$' } | Select-Object -First 1).Trim().Split(' ')[0]
+  $checksum=($checks -split "`n" | Where-Object { $_ -match ' GameHub-Server-0.4.0.zip\s*$' } | Select-Object -First 1).Trim().Split(' ')[0]
   if ($checksum -notmatch '^[a-fA-F0-9]{64}$' -or (Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash -ne $checksum) { throw 'Server bundle SHA256 mismatch' }
   $source=Join-Path $runtime 'source'
   Expand-Archive -LiteralPath $bundle -DestinationPath $source -Force

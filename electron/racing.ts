@@ -1,4 +1,6 @@
 import fs from 'node:fs/promises';
+import { nightcoopInput } from '../shared/contracts';
+import { nightcoopPorts } from './nightcoop';
 import path from 'node:path';
 import type { ServerRecord, ConfigDocument, GameOptions } from '../shared/contracts';
 import { atomicWrite, inside, rejectLinks } from './security';
@@ -394,6 +396,7 @@ export function restoreMasked(value: any, old: any): any {
   return value;
 }
 export async function configurationFiles(s: ServerRecord) {
+  if (s.game === 'nightcoop') return ['nightcoop.json'];
   if (s.game === 'beammp') return ['ServerConfig.toml'];
   if (s.game === 'minecraft')
     return [
@@ -463,6 +466,16 @@ export async function saveConfigDocument(
   name: string,
   value: Record<string, unknown>,
 ) {
+  if (s.game === 'nightcoop') {
+    if (name !== 'nightcoop.json') throw new Error('Недопустимый файл NightCoop');
+    const { port, ...settings } = value;
+    if (typeof port !== 'number' || !Number.isInteger(port) || port < 1024 || port > 65535)
+      throw new Error('Недопустимый UDP-порт');
+    const parsed = nightcoopInput.parse(settings);
+    nightcoopPorts({ port, nightcoop: parsed });
+    await atomicWrite(inside(s.root, name), JSON.stringify({ port, ...parsed }, null, 2));
+    return;
+  }
   if (!(await configurationFiles(s)).includes(name))
     throw new Error('Недопустимый конфигурационный файл');
   const file = inside(s.root, name);

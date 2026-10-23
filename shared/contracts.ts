@@ -1,4 +1,50 @@
 import { z } from 'zod';
+export const nightcoopInput = z
+  .object({
+    shards: z.union([z.literal('auto'), z.number().int().min(1).max(64)]).default(1),
+    maxClients: z.number().int().min(1).max(4095).default(512),
+    maxPerAddress: z.number().int().min(0).max(4095).default(18),
+    maxSessions: z.number().int().min(0).max(4095).default(0),
+    maxGuests: z.number().int().min(1).max(4095).default(16),
+    maxPacketKB: z.number().int().min(64).max(32768).default(8192),
+    idleSeconds: z.number().int().min(0).max(3600).default(30),
+    statsSeconds: z.number().int().min(0).max(86400).default(300),
+    statsAlways: z.boolean().default(false),
+    cookie: z.enum(['off', 'pressure', 'always']).default('pressure'),
+    cookieBusy: z.number().int().min(0).max(4095).default(0),
+    guard: z.boolean().default(true),
+    guardPoolMB: z.number().int().min(16).max(4096).default(384),
+    maxQueueKB: z.number().int().min(0).max(1048576).default(32768),
+    receiveBufferKB: z.number().int().min(0).max(1048576).default(4096),
+    resume: z.boolean().default(true),
+    logToFile: z.boolean().default(false),
+    runSeconds: z.number().int().min(0).max(604800).default(0),
+    bench: z.boolean().default(false),
+    hubNames: z
+      .array(
+        z
+          .string()
+          .min(1)
+          .max(120)
+          .regex(/^[a-zA-Z0-9.-]+$/),
+      )
+      .max(16)
+      .default([]),
+    address: z
+      .string()
+      .max(253)
+      .regex(/^[a-zA-Z0-9.-]*$/)
+      .default(''),
+    region: z
+      .string()
+      .max(32)
+      .regex(/^[a-zA-Z0-9_-]*$/)
+      .default('home'),
+    useHubCert: z.boolean().default(false),
+    useHubList: z.boolean().default(false),
+    useLocations: z.boolean().default(false),
+  })
+  .strict();
 export const gameId = z.enum([
   'beammp',
   'minecraft',
@@ -9,6 +55,7 @@ export const gameId = z.enum([
   'evo',
   'acc',
   'lmu',
+  'nightcoop',
 ]);
 export type GameId = z.infer<typeof gameId>;
 export const idSchema = z.string().uuid();
@@ -29,6 +76,7 @@ export const serverInput = z
       'valheim',
       'terraria',
       'factorio',
+      'nightcoop',
     ]),
     name: line,
     port: z.number().int().min(1024).max(65535),
@@ -183,6 +231,7 @@ export const serverInput = z
     worldMode: z.number().int().min(0).max(3).default(0),
     autoPause: z.boolean().default(true),
     autosaveMinutes: z.number().int().min(1).max(120).default(10),
+    nightcoop: nightcoopInput.default({}),
   })
   .strict();
 export type ServerInput = z.infer<typeof serverInput>;
@@ -238,6 +287,8 @@ export type Snapshot = {
 };
 export type Reply<T> = { ok: true; data: T } | { ok: false; error: string };
 export type Action =
+  | 'nightcoopInfo'
+  | 'nightcoopFile'
   | 'freePort'
   | 'gameOptions'
   | 'versions'
@@ -276,6 +327,14 @@ export interface HubAPI {
 }
 export type ContentKind = 'auto' | 'server' | 'world' | 'datapack';
 export type Choice = { value: string; label: string };
+export type NightcoopInfo = {
+  fingerprint?: string;
+  address?: string;
+  ports: number[];
+  publicKeys?: string;
+  source: string;
+  installed: boolean;
+};
 export type GameOptions = {
   maps: Choice[];
   tracks: Choice[];

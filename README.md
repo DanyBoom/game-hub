@@ -2,22 +2,28 @@
 
 Менеджер игровых серверов: приложение для **Windows 11** и **веб-панель на выделенном Windows / Linux сервере**. Русский интерфейс, тёмная тема, серверы и настройки на вашем компьютере. Без облачной панели, аккаунтов GameHub и телеметрии.
 
-> **Проект навайбкожен**: разрабатывается при значительной помощи генеративного ИИ (vibe coding). Версия **0.3.0 — экспериментальная**, код требует человеческой проверки. Храните отдельные копии важных миров.
+> **Проект навайбкожен**: разрабатывается при значительной помощи генеративного ИИ (vibe coding). Версия **0.4.0 — экспериментальная**, код требует человеческой проверки. Храните отдельные копии важных миров.
 
 ## Скачать
 
 | Файл                                                                                                                   | Для чего                                                                |
 | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| [Windows Setup 0.3.0](https://github.com/DanyBoom/game-hub/releases/download/v0.3.0/GameHub-Setup-0.3.0-x64.exe)       | Обычная установка приложения                                            |
-| [Windows Portable 0.3.0](https://github.com/DanyBoom/game-hub/releases/download/v0.3.0/GameHub-Portable-0.3.0-x64.exe) | Запуск EXE без установки приложения                                     |
-| [GameHub Server 0.3.0 ZIP](https://github.com/DanyBoom/game-hub/releases/download/v0.3.0/GameHub-Server-0.3.0.zip)     | Выделенный сервер Windows/Linux, исходники и автоустановщики            |
-| [Установщик Ubuntu/Debian](https://github.com/DanyBoom/game-hub/releases/download/v0.3.0/install-server.sh)            | Можно скачать отдельно и запустить с `sudo bash install-server.sh auto` |
-| [Установщик Windows Server](https://github.com/DanyBoom/game-hub/releases/download/v0.3.0/install-server.ps1)          | Можно скачать отдельно и запустить в PowerShell администратора          |
-| [SHA-256](https://github.com/DanyBoom/game-hub/releases/download/v0.3.0/SHA256SUMS.txt)                                | Контрольные суммы файлов                                                |
+| [Windows Setup 0.4.0](https://github.com/DanyBoom/game-hub/releases/download/v0.4.0/GameHub-Setup-0.4.0-x64.exe)       | Обычная установка приложения                                            |
+| [Windows Portable 0.4.0](https://github.com/DanyBoom/game-hub/releases/download/v0.4.0/GameHub-Portable-0.4.0-x64.exe) | Запуск EXE без установки приложения                                     |
+| [GameHub Server 0.4.0 ZIP](https://github.com/DanyBoom/game-hub/releases/download/v0.4.0/GameHub-Server-0.4.0.zip)     | Выделенный сервер Windows/Linux, исходники и автоустановщики            |
+| [Установщик Ubuntu/Debian](https://github.com/DanyBoom/game-hub/releases/download/v0.4.0/install-server.sh)            | Можно скачать отдельно и запустить с `sudo bash install-server.sh auto` |
+| [Установщик Windows Server](https://github.com/DanyBoom/game-hub/releases/download/v0.4.0/install-server.ps1)          | Можно скачать отдельно и запустить в PowerShell администратора          |
+| [SHA-256](https://github.com/DanyBoom/game-hub/releases/download/v0.4.0/SHA256SUMS.txt)                                | Контрольные суммы файлов                                                |
 
 [Все версии и заметки к выпускам](https://github.com/DanyBoom/game-hub/releases). EXE пока не подписаны Authenticode. Portable хранит рабочие данные отдельно от EXE в системной папке приложения; это не перенос всех миров вместе с одним файлом.
 
-## Новое в 0.3
+## Новое в 0.4
+
+- **Cyberpunk 2077 Co-op / NightCoop Hub:** установка одной кнопкой в Linux-панели, сборка закреплённых исходников и ENet, собственный ключ и адрес с отпечатком.
+- Все рабочие параметры хаба: потоки, лимиты, cookie/guard, очереди, буферы, статистика, возобновление сессий и дополнительные публичные файлы. UDP-порты рассчитываются по протоколу и проверяются на конфликты.
+- Это хаб поиска сессий и relay: сессию игры держит хост с модом NightCoop. Для VPS нужны Ubuntu 24.04+ / Debian 13+ и g++ 13+. [Инструкция NightCoop](docs/NIGHTCOOP.md).
+
+## Добавлено в 0.3
 
 - **Отдельное управление модами:** поиск и фильтр, массовое включение/отключение, SHA-256, карантин с резервной копией, редактор обнаруженных текстовых настроек. Папки Lua-плагинов BeamMP при отключении полностью убираются из активной директории.
 - **BeamMP — одна кнопка установки:** официальный релиз, подходящая ОС, загрузка, проверка размера/доступного digest и подготовка папок происходят автоматически. AuthKey вводится отдельно, он принадлежит вашему аккаунту BeamMP.

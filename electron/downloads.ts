@@ -9,6 +9,7 @@ const hosts = new Set([
   'dl.factorio.com',
   'steamcdn-a.akamaihd.net',
   'api.github.com',
+  'codeload.github.com',
   'piston-meta.mojang.com',
   'launchermeta.mojang.com',
   'piston-data.mojang.com',

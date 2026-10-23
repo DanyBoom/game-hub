@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import TOML from '@iarna/toml';
 import type { ServerRecord } from '../shared/contracts';
-import { serverInput } from '../shared/contracts';
+import { serverInput, nightcoopInput } from '../shared/contracts';
 import { atomicWrite, inside, rejectLinks } from './security';
 import { configureRacing, racingGames, parseIni, readJson } from './racing';
 import { extraGames, extraBinary, configureExtra } from './extra-games';
@@ -147,6 +147,10 @@ export async function readConfig(s: ServerRecord): Promise<Partial<ServerRecord>
       .filter((k) => !['authKey', 'password', 'adminPassword'].includes(k) && k in manifest)
       .map((k) => [k, manifest[k]]),
   );
+  if (s.game === 'nightcoop') {
+    const { port, ...settings } = await readJson(inside(s.root, 'nightcoop.json'));
+    return { ...baseline, port, nightcoop: nightcoopInput.parse(settings) };
+  }
   if (extraGames.has(s.game)) return baseline;
   if (s.game === 'assetto') {
     const config = parseIni(await fs.readFile(inside(s.root, 'cfg/server_cfg.ini'), 'utf8'));

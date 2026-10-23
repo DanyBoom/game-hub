@@ -78,6 +78,10 @@ export async function importFiles(
   window: BrowserWindow,
   backup: () => Promise<unknown>,
 ) {
+  if (s.game === 'nightcoop')
+    throw new Error(
+      'Мод NightCoop устанавливается на игровые ПК. Хабу нужны только публичные сертификаты/списки — вкладка NightCoop.',
+    );
   if (s.game === 'acc' || s.game === 'evo')
     throw new Error(
       'Этот официальный сервер не поддерживает установку пользовательских машин/трасс ZIP. Доступный контент берётся из данных игры; настройки и участники находятся во вкладке «Все параметры».',

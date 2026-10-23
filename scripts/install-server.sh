@@ -13,17 +13,17 @@ DATA=/var/lib/gamehub
 . /etc/os-release
 [[ "$ID" == ubuntu || "$ID" == debian ]] || { echo 'Ubuntu / Debian required'; exit 1; }
 apt-get update
-apt-get install -y ca-certificates curl unzip xz-utils tar libatomic1 libstdc++6 libssl3 libicu-dev lib32gcc-s1 lib32stdc++6
+apt-get install -y ca-certificates curl unzip xz-utils tar gcc g++ git libatomic1 libstdc++6 libssl3 libicu-dev lib32gcc-s1 lib32stdc++6
 TMP="$(mktemp -d)"
 trap 'rm -rf -- "$TMP"' EXIT
 # A standalone downloaded installer fetches the matching published server bundle.
 if [[ ! -f "$SOURCE/package.json" ]]; then
-  BASE=https://github.com/DanyBoom/game-hub/releases/download/v0.3.0
-  curl -fsSL "$BASE/GameHub-Server-0.3.0.zip" -o "$TMP/GameHub-Server-0.3.0.zip"
+  BASE=https://github.com/DanyBoom/game-hub/releases/download/v0.4.0
+  curl -fsSL "$BASE/GameHub-Server-0.4.0.zip" -o "$TMP/GameHub-Server-0.4.0.zip"
   curl -fsSL "$BASE/SHA256SUMS.txt" -o "$TMP/SHA256SUMS.txt"
-  (cd "$TMP" && grep ' GameHub-Server-0.3.0.zip$' SHA256SUMS.txt | sha256sum --check --status)
+  (cd "$TMP" && grep ' GameHub-Server-0.4.0.zip$' SHA256SUMS.txt | sha256sum --check --status)
   mkdir "$TMP/source"
-  unzip -q "$TMP/GameHub-Server-0.3.0.zip" -d "$TMP/source"
+  unzip -q "$TMP/GameHub-Server-0.4.0.zip" -d "$TMP/source"
   SOURCE="$TMP/source"
 fi
 # Node is verified against the vendor SHA256 manifest before extraction.

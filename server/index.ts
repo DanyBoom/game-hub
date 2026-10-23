@@ -211,6 +211,7 @@ async function main() {
               .parse(await body(req));
             const read = [
               'snapshot',
+              'nightcoopInfo',
               'logs',
               'content',
               'contentDetails',

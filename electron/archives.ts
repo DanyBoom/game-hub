@@ -119,6 +119,12 @@ export async function zipFolder(root: string, target: string) {
         await rejectLinks(root, full);
         const relative = path.relative(root, full).replace(/\\/g, '/');
         if (
+          relative === 'hub-sign.key' ||
+          relative === 'nightcoop_hub' ||
+          relative.startsWith('.nightcoop-build-')
+        )
+          continue;
+        if (
           excluded.test(relative) ||
           /(?:^|\/)(BeamMP-Server|valheim_server\.x86_64|TerrariaServer(?:\.bin\.x86_64)?|lib[^/]+\.so(?:\.\d+)*)$/.test(
             relative,
